@@ -2033,8 +2033,9 @@ async function callAPI(model){
             if(!thinkEl){createThinkBlockLive();thinkEl.style.background='none';thinkEl.style.border='none';thinkEl.style.borderRadius='0';thinkEl.style.padding='0';}
             if(procEl)aiBubble.insertBefore(thinkEl,procEl);
             setLine('正在思考…',true);
-            thinkBuf+=(ev.text||'');thinkCharCount+=(ev.text||'').length;
-            if(thinkTextEl)thinkTextEl.textContent=thinkBuf;scrollIfNeeded();
+            const g=getStep(ev.step!=null?ev.step:curStep);
+            if(!g.think){g.think=document.createElement('div');g.think.className='agent-think';g.body.appendChild(g.think);}
+            g.think.textContent+=(ev.text||'');thinkCharCount+=(ev.text||'').length;scrollIfNeeded();
           }
         }else if(ev.type==='tool_call'){
           setLine('正在'+shortSummary(ev.summary,34)+' …',true);
