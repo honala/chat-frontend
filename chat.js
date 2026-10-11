@@ -1962,7 +1962,7 @@ async function callAPI(model){
       if(isOpenAI)body.provider_id=provider.id;
       const res=await fetch('/papi/agent',{method:'POST',headers:API_HEADERS,body:JSON.stringify(body),signal:abortController.signal});
       if(!res.ok)throw new Error('HTTP '+res.status);
-      const toolEls={}; let pendingEl=null;
+      const toolEls={}; let pendingEl=null; let answerTokens=0,genMs=0,gotDone=false;
       const clearPending=()=>{if(pendingEl){try{pendingEl.remove();}catch(_){} pendingEl=null;}};
       for await(const ev of streamNdjsonLines(res)){
         if(ev.type==='status'){
@@ -1980,13 +1980,21 @@ async function callAPI(model){
         }else if(ev.type==='answer_delta'){
           clearPending();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
         }else if(ev.type==='done'){
+          gotDone=true;
+          if(ev.usage&&ev.usage.completion_tokens)answerTokens=ev.usage.completion_tokens;
+          if(ev.gen_ms)genMs=ev.gen_ms;
           if(ev.new_messages&&ev.new_messages.length){for(const m of ev.new_messages)CH.push(m);saveToStorage();}
         }else if(ev.type==='error'){
           throw new Error(ev.message||'agent error');
         }
       }
       clearPending();
-      finalize(contentTokenCount,0);
+      if(!gotDone){
+        const w=document.createElement('div');w.className='search-results-block collapsed';
+        w.innerHTML='<div class="search-results-label">⚠ 连接中断，回答可能不完整（可点该条重新生成）</div>';
+        aiBubble.insertBefore(w,liveBar);
+      }
+      finalize(answerTokens||contentTokenCount, genMs>0?(genMs*1000000):0);
     }catch(e){
       try{cursor.remove();}catch(_){}
       try{liveBar.remove();}catch(_){}
