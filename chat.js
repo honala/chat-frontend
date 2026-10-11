@@ -1958,11 +1958,11 @@ async function callAPI(model){
     try{
       let payloadMessages=repairToolChain(trimHistory(CH,MAX_HISTORY));
       if(!thinkMode)payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...rest}=m;return rest;});
-      const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP};
+      const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP,think:thinkMode};
       if(isOpenAI)body.provider_id=provider.id;
       const res=await fetch('/papi/agent',{method:'POST',headers:API_HEADERS,body:JSON.stringify(body),signal:abortController.signal});
       if(!res.ok)throw new Error('HTTP '+res.status);
-      const toolEls={}; let pendingEl=null; let answerTokens=0,genMs=0,gotDone=false;
+      const toolEls={}; let pendingEl=null; let answerTokens=0,genMs=0,gotDone=false,finishReason='';
       const clearPending=()=>{if(pendingEl){try{pendingEl.remove();}catch(_){} pendingEl=null;}};
       for await(const ev of streamNdjsonLines(res)){
         if(ev.type==='status'){
@@ -1977,12 +1977,15 @@ async function callAPI(model){
           if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');t.body.textContent=ev.content||'';}
           if(ev.cards&&ev.cards.length){searchData={query:(t?t.summary:''),results:ev.cards};const sb=buildSearchResultsBlock(ev.cards,(t?t.summary:'搜索'));aiBubble.insertBefore(sb,liveBar);}
           scrollIfNeeded();
+        }else if(ev.type==='thinking'){
+          if(thinkMode){if(!thinkEl)createThinkBlockLive();thinkBuf+=ev.text;thinkCharCount+=ev.text.length;if(thinkTextEl)thinkTextEl.textContent=thinkBuf;scrollIfNeeded();}
         }else if(ev.type==='answer_delta'){
-          clearPending();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
+          clearPending();if(thinkEl&&!answerHeaderEl)finishThink();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
         }else if(ev.type==='done'){
           gotDone=true;
           if(ev.usage&&ev.usage.completion_tokens)answerTokens=ev.usage.completion_tokens;
           if(ev.gen_ms)genMs=ev.gen_ms;
+          if(ev.finish_reason)finishReason=ev.finish_reason;
           if(ev.new_messages&&ev.new_messages.length){for(const m of ev.new_messages)CH.push(m);saveToStorage();}
         }else if(ev.type==='error'){
           throw new Error(ev.message||'agent error');
@@ -1992,6 +1995,10 @@ async function callAPI(model){
       if(!gotDone){
         const w=document.createElement('div');w.className='search-results-block collapsed';
         w.innerHTML='<div class="search-results-label">⚠ 连接中断，回答可能不完整（可点该条重新生成）</div>';
+        aiBubble.insertBefore(w,liveBar);
+      }else if(finishReason==='length'){
+        const w=document.createElement('div');w.className='search-results-block collapsed';
+        w.innerHTML='<div class="search-results-label">⚠ 达到长度上限，回答可能被截断</div>';
         aiBubble.insertBefore(w,liveBar);
       }
       finalize(answerTokens||contentTokenCount, genMs>0?(genMs*1000000):0);
