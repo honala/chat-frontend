@@ -1862,7 +1862,7 @@ function makeToolCard(summary){
 function ensureAgentProcStyle(){
   if(document.getElementById('agent-proc-style'))return;
   const st=document.createElement('style');st.id='agent-proc-style';
-  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-caret{opacity:.6;font-size:10px;margin-right:2px;display:inline-block}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}.agent-ask-opts{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.agent-ask-opt{cursor:pointer;border:1px solid rgba(128,128,128,.35);background:transparent;color:inherit;border-radius:14px;padding:3px 12px;font-size:12.5px;font-family:inherit}.agent-ask-opt:hover{border-color:currentColor;opacity:.85}.agent-proc-label{position:relative;overflow:hidden}.agent-proc-text{display:inline-block;animation:agentrollin .28s cubic-bezier(.2,.7,.2,1)}.agent-proc-ghost{position:absolute;left:0;top:0;right:0;pointer-events:none;animation:agentrollout .26s ease forwards}@keyframes agentrollin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes agentrollout{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}@media (prefers-reduced-motion:reduce){.agent-proc-ghost{display:none}.agent-proc-text{animation:none}}';
+  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-caret{opacity:.6;font-size:10px;margin-right:2px;display:inline-block}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}.agent-ask-opts{display:flex;flex-direction:column;gap:8px;margin:14px 0 4px;max-width:560px}.agent-ask-opt{text-align:left;cursor:pointer;border:1px solid rgba(128,128,128,.3);background:rgba(128,128,128,.06);color:inherit;border-radius:10px;padding:10px 14px;font-size:13.5px;line-height:1.5;font-family:inherit;transition:background .15s,border-color .15s}.agent-ask-opt:hover{background:rgba(128,128,128,.14);border-color:currentColor}.agent-proc-label{position:relative;overflow:hidden}.agent-proc-text{display:inline-block;animation:agentrollin .28s cubic-bezier(.2,.7,.2,1)}.agent-proc-ghost{position:absolute;left:0;top:0;right:0;pointer-events:none;animation:agentrollout .26s ease forwards}@keyframes agentrollin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes agentrollout{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}@media (prefers-reduced-motion:reduce){.agent-proc-ghost{display:none}.agent-proc-text{animation:none}}';
   document.head.appendChild(st);
 }
 function shortSummary(s,max){s=String(s==null?'':s).replace(/\s+/g,' ').trim();max=max||30;return s.length>max?(s.slice(0,max)+'…'):s;}
@@ -1989,7 +1989,7 @@ async function callAPI(model){
       if(!res.ok)throw new Error('HTTP '+res.status);
       const toolEls={}; let procEl=null,procLine=null,procLabel=null,procSpin=null,procCaret=null,procBody=null;
       const stepGroups={}; let curStep=0;
-      let answerTokens=0,genMs=0,gotDone=false,finishReason='';
+      let answerTokens=0,genMs=0,gotDone=false,finishReason=''; let pendingAskOpts=null;
       ensureAgentProcStyle();
       const ensureProc=()=>{
         if(procEl)return;
@@ -2060,11 +2060,7 @@ async function callAPI(model){
           if(t&&ev.video){const vd=document.createElement('video');vd.src=ev.video;vd.controls=true;vd.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(vd);}
           scrollIfNeeded();
         }else if(ev.type==='ask'){
-          if(ev.options&&ev.options.length){
-            const row=document.createElement('div');row.className='agent-ask-opts';
-            ev.options.forEach(o=>{const b=document.createElement('button');b.className='agent-ask-opt';b.type='button';b.textContent=o;b.addEventListener('click',()=>{try{inputEl.value=o;inputEl.focus();sendMessage();}catch(_){}});row.appendChild(b);});
-            aiBubble.insertBefore(row,liveBar);scrollIfNeeded();
-          }
+          if(ev.options&&ev.options.length)pendingAskOpts=ev.options.slice();
         }else if(ev.type==='answer_delta'){
           setLine('✓ 处理完成，正在作答…',true);
           if(!answerHeaderEl){if(thinkEl)finishThink();else{answerHeaderEl=makeAnswerHeader();aiBubble.insertBefore(answerHeaderEl,liveBar);}}
@@ -2094,6 +2090,11 @@ async function callAPI(model){
         aiBubble.insertBefore(w,liveBar);
       }
       finalize(answerTokens||contentTokenCount, genMs>0?(genMs*1000000):0);
+      if(pendingAskOpts&&pendingAskOpts.length){
+        const row=document.createElement('div');row.className='agent-ask-opts';
+        pendingAskOpts.forEach(o=>{const b=document.createElement('button');b.className='agent-ask-opt';b.type='button';b.textContent=o;b.addEventListener('click',()=>{try{row.remove();inputEl.value=o;inputEl.focus();sendMessage();}catch(_){}});row.appendChild(b);});
+        aiBubble.appendChild(row);scrollIfNeeded();
+      }
     }catch(e){
       try{cursor.remove();}catch(_){}
       try{liveBar.remove();}catch(_){}
