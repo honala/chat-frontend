@@ -1,4 +1,4 @@
-// ── Utilities ──────────────────────────────
+﻿// ── Utilities ──────────────────────────────
 const escHtml = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 const MAX_HISTORY=20;
 const MAX_INPUT_H=160;
@@ -414,27 +414,26 @@ function injectSearchContext(messages, searchData){
 }
 
 function repairToolChain(msgs){
-  // Remove orphaned tool_calls/tool messages that would break API calls
-  const clean=[]; let expectTool=false;
-  for(const m of msgs){
-    if(expectTool){
-      if(m.role==='tool'){expectTool=m.tool_calls?true:false; clean.push(m); continue;}
-      // Missing tool response — skip the orphaned tool_calls message before this
-      for(let i=clean.length-1;i>=0;i--){
-        if(clean[i].role==='assistant'&&clean[i].tool_calls){clean.splice(i,1);break;}
+  // 加固(C)：保证 assistant.tool_calls 与其后的 tool 消息按 id 严格一一对应；
+  // 任何不配对的分组、或没有前置 tool_calls 的孤儿 tool 消息，一律丢弃。
+  const out=[]; let i=0;
+  while(i<msgs.length){
+    const m=msgs[i];
+    if(m.role==='assistant'&&Array.isArray(m.tool_calls)&&m.tool_calls.length){
+      const ids=m.tool_calls.map(t=>t.id).filter(Boolean);
+      let j=i+1; const following=[];
+      while(j<msgs.length&&msgs[j].role==='tool'){following.push(msgs[j]);j++;}
+      const hasAll=ids.length>0&&ids.every(id=>following.some(t=>t.tool_call_id===id));
+      if(hasAll){
+        out.push(m);
+        for(const t of following){if(ids.includes(t.tool_call_id))out.push(t);}
       }
-      expectTool=false;
+      i=j; continue;
     }
-    if(m.role==='assistant'&&m.tool_calls){expectTool=true;}
-    clean.push(m);
+    if(m.role==='tool'){i++; continue;}
+    out.push(m); i++;
   }
-  // If last message expects tool but none follows, clean up
-  if(expectTool){
-    for(let i=clean.length-1;i>=0;i--){
-      if(clean[i].role==='assistant'&&clean[i].tool_calls){clean.splice(i,1);break;}
-    }
-  }
-  return clean;
+  return out;
 }
 
 function normalizeMessages(msgs, opts={}){
@@ -472,17 +471,19 @@ async function* streamNdjsonLines(res){
 }
 
 function injectCurrentDate(messages){
+  // 彻底版：动态日期只贴到「最后一条消息」的末尾，绝不改动开头 system 与既有历史，
+  // 保证 prompt 前缀逐字稳定 —— 缓存命中率最大化。
   const now=new Date();
   const today=now.toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric'});
-  const time=now.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
-  const dateTag=`今天是${today} ${time}。当用户询问涉及时间的内容（如"最近"、"最新"、"近期"），请以当前日期和时间为基准构建搜索关键词。`;
+  const dateTag=`\n\n[系统提示：今天是${today}。涉及"最近/最新/近期"等时间相关内容时，请以此为基准构建搜索关键词。]`;
   const out=messages.slice();
-  const sysIdx=out.findIndex(m=>m.role==='system');
-  if(sysIdx>=0){
-    const clean=out[sysIdx].content.replace(/\n?\n?今天是\d{4}年\d{1,2}月\d{1,2}日。[^\n]*\n?\n?/g,'');
-    out[sysIdx]={...out[sysIdx],content:`${clean}\n\n${dateTag}`};
+  if(!out.length)return out;
+  const last=out[out.length-1];
+  if(Array.isArray(last.content)){
+    out[out.length-1]={...last,content:[...last.content,{type:'text',text:dateTag}]};
   }else{
-    out.unshift({role:'system',content:dateTag});
+    const base=(typeof last.content==='string')?last.content:'';
+    out[out.length-1]={...last,content:`${base}${dateTag}`};
   }
   return out;
 }
@@ -1099,12 +1100,8 @@ async function loadModels(){
   const externalModels=allResults.slice(1).flat();
 
   const freeModels=[
-    // ── 阿里云百炼模型（DashScope） ──
-    {value:FREE_PREFIX+'qwen3.7-plus',name:'qwen3.7-plus',label:'Qwen3.7 Plus'},
-    {value:FREE_PREFIX+'deepseek-v4-pro',name:'deepseek-v4-pro',label:'DeepSeek V4 Pro [纯文本]'},
-    {value:FREE_PREFIX+'kimi-k2.6',name:'kimi-k2.6',label:'Kimi K2.6'},
-    // ── 火山方舟模型（Volcano Engine） ──
-    {value:FREE_PREFIX+'doubao-seed-2-0-pro-260215',name:'doubao-seed-2-0-pro-260215',label:'豆包 Seed 2.0 Pro'},
+    // ── DeepSeek 官方模型 ──
+    {value:FREE_PREFIX+'deepseek-flash',name:'deepseek-flash',label:'DeepSeek V4.1 Flash'},
   ];
 
   const allModels=[...ollamaModels,...externalModels];
@@ -1145,7 +1142,7 @@ async function loadModels(){
 
   // Set default if nothing selected
   if(!prevSelected){
-    const def=freeModels.find(function(m){return m.name==='qwen3.7-plus';})||freeModels[0]||ollamaGroup[0]||allModels[0];
+    const def=freeModels.find(function(m){return m.name==='deepseek-flash';})||freeModels[0]||ollamaGroup[0]||allModels[0];
     if(def)selectModel(def);
   }else{
     const sel=groups.flatMap(g=>g.models).find(m=>m.value===prevSelected);
@@ -1950,8 +1947,32 @@ function parseToolArgs(args){
   try{return JSON.parse(args);}catch(e){return{};}
 }
 
+async function fulfillToolCalls(toolCalls){
+  // A+B：把模型返回的「全部」tool_call 都执行，并为「每一个 id」生成一条对应 tool 回复；
+  // 执行不了的（非 web_search / 空 query / 搜索无结果）也补一条说明，
+  // 保证「声明数 == 回复数」，从根上消除 "insufficient tool messages" 报错。
+  const calls=toolCalls.map(tc=>({...tc,id:tc.id||('call_'+Math.random().toString(36).slice(2,10))}));
+  const toolMsgs=[]; let searchData=null; let toolQuery='';
+  for(const tc of calls){
+    let content='（工具不可用，无结果）';
+    if(tc.function?.name==='web_search'){
+      const args=parseToolArgs(tc.function.arguments);
+      const query=args.query||'';
+      if(query){
+        const sd=await executeToolSearch(query);
+        if(sd&&sd.results&&sd.results.length){
+          if(!searchData){searchData=sd;toolQuery=query;}
+          content=buildSearchContext(sd.results,query);
+        }else{content='（搜索无结果）';}
+      }else{content='（搜索关键词为空，未执行）';}
+    }
+    toolMsgs.push({role:'tool',tool_call_id:tc.id,content});
+  }
+  return {calls,toolMsgs,searchData,toolQuery};
+}
+
 async function performToolCallingSearch(model, abortSignal, history=chatHistory){
-  // Returns {searchData, toolQuery} or null if model chose not to search
+  // Returns {searchData, toolQuery, toolCallMsg, toolResultMsgs} or null if model chose not to call tools
   const provider=providerForModel(model);
   const isOpenAI=!!provider;
   const isFree=model.startsWith(FREE_PREFIX);
@@ -1983,19 +2004,12 @@ async function performToolCallingSearch(model, abortSignal, history=chatHistory)
       if(!msg)return null;
       const toolCalls=msg.tool_calls;
       if(!toolCalls||!toolCalls.length)return null;
-      const tc=toolCalls[0];
-      if(tc.function?.name!=='web_search')return null;
-      const args=parseToolArgs(tc.function.arguments);
-      const query=args.query||'';
-      if(!query)return null;
-      // Execute search
-      const searchData=await executeToolSearch(query);
-      if(!searchData)return null;
-      // Store assistant tool_call message + tool result (preserve reasoning_content for thinking mode)
+      // A+B：执行全部 tool_call，并为每个 id 生成对应 tool 回复
       const reasoning=msg.reasoning_content||null;
-      const toolCallMsg={role:'assistant',tool_calls:toolCalls};
+      const r=await fulfillToolCalls(toolCalls);
+      const toolCallMsg={role:'assistant',tool_calls:r.calls};
       if(reasoning)toolCallMsg.reasoning_content=reasoning;
-      return {searchData,toolQuery:query,toolCallMsg,toolResultMsg:{role:'tool',tool_call_id:tc.id,content:buildSearchContext(searchData.results,query)}};
+      return {searchData:r.searchData,toolQuery:r.toolQuery,toolCallMsg,toolResultMsgs:r.toolMsgs};
     }
 
     if(isFree){
@@ -2021,17 +2035,12 @@ async function performToolCallingSearch(model, abortSignal, history=chatHistory)
       if(!msg)return null;
       const toolCalls=msg.tool_calls;
       if(!toolCalls||!toolCalls.length)return null;
-      const tc=toolCalls[0];
-      if(tc.function?.name!=='web_search')return null;
-      const args=parseToolArgs(tc.function.arguments);
-      const query=args.query||'';
-      if(!query)return null;
-      const searchData=await executeToolSearch(query);
-      if(!searchData)return null;
+      // A+B：执行全部 tool_call，并为每个 id 生成对应 tool 回复
       const reasoningFree=msg.reasoning_content||null;
-      const toolCallMsgFree={role:'assistant',tool_calls:toolCalls};
+      const rFree=await fulfillToolCalls(toolCalls);
+      const toolCallMsgFree={role:'assistant',tool_calls:rFree.calls};
       if(reasoningFree)toolCallMsgFree.reasoning_content=reasoningFree;
-      return {searchData,toolQuery:query,toolCallMsg:toolCallMsgFree,toolResultMsg:{role:'tool',tool_call_id:tc.id,content:buildSearchContext(searchData.results,query)}};
+      return {searchData:rFree.searchData,toolQuery:rFree.toolQuery,toolCallMsg:toolCallMsgFree,toolResultMsgs:rFree.toolMsgs};
     }
 
     // ── Ollama tool calling ──
@@ -2052,17 +2061,9 @@ async function performToolCallingSearch(model, abortSignal, history=chatHistory)
     if(!msg)return null;
     const toolCalls=msg.tool_calls;
     if(!toolCalls||!toolCalls.length)return null;
-    const tc=toolCalls[0];
-    if(tc.function?.name!=='web_search')return null;
-    const args=parseToolArgs(tc.function.arguments);
-    const query=args.query||'';
-    if(!query)return null;
-    const searchData=await executeToolSearch(query);
-    if(!searchData)return null;
-    // Ensure tool_call id matches between call and result (Ollama may omit id)
-    const toolCallId=tc.id||'call_'+Math.random().toString(36).slice(2,10);
-    const fixedToolCalls=toolCalls.map(t=>({...t,id:t.id||toolCallId}));
-    return {searchData,toolQuery:query,toolCallMsg:{role:'assistant',tool_calls:fixedToolCalls},toolResultMsg:{role:'tool',tool_call_id:toolCallId,content:buildSearchContext(searchData.results,query)}};
+    // A+B：执行全部 tool_call，并为每个 id 生成对应 tool 回复（Ollama 缺 id 时自动补）
+    const rOll=await fulfillToolCalls(toolCalls);
+    return {searchData:rOll.searchData,toolQuery:rOll.toolQuery,toolCallMsg:{role:'assistant',tool_calls:rOll.calls},toolResultMsgs:rOll.toolMsgs};
   }catch(e){
     console.warn('Tool calling search failed:',e);
     return null;
@@ -2199,13 +2200,19 @@ async function callAPI(model){
     aiBubble.insertBefore(pending,liveBar);
     const toolResult=await performToolCallingSearch(model, abortController.signal, CH);
     pending.remove();
-    if(toolResult&&toolResult.searchData){
-      CH.push(toolResult.toolCallMsg);
-      CH.push(toolResult.toolResultMsg);
+    if(toolResult){
+      if(toolResult.toolCallMsg)CH.push(toolResult.toolCallMsg);
+      for(const tm of (toolResult.toolResultMsgs||[]))CH.push(tm);
       saveToStorage();
-      searchData=toolResult.searchData;
-      const searchBlock=buildSearchResultsBlock(searchData.results,'🤖 '+toolResult.toolQuery);
-      aiBubble.insertBefore(searchBlock,liveBar);
+      searchData=toolResult.searchData||null;
+      if(searchData){
+        const searchBlock=buildSearchResultsBlock(searchData.results,'🤖 '+toolResult.toolQuery);
+        aiBubble.insertBefore(searchBlock,liveBar);
+      }else{
+        const noRes=document.createElement('div');noRes.className='search-results-block collapsed';
+        noRes.innerHTML='<div class="search-results-label">🔍 已调用搜索但无结果</div>';
+        aiBubble.insertBefore(noRes,liveBar);
+      }
     }else{
       const noSearch=document.createElement('div');noSearch.className='search-results-block collapsed';
       noSearch.innerHTML='<div class="search-results-label">🤔 模型决定不搜索，直接回答</div>';
@@ -2507,3 +2514,4 @@ else if(window.MathJax){MathJax.startup.promise.then(()=>renderMath(messagesEl))
 else{document.querySelector('script[src*="mathjax"]')?.addEventListener('load',()=>{setTimeout(()=>renderMath(messagesEl),200);});}
 // Backend sync: check + pull sessions/messages (non-blocking)
 const initSid=activeSessionId;checkBackend().then(ok=>{if(ok)syncToBackend(initSid);});
+

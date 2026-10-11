@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识库管理 - RAG Knowledge Base</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@300;400;500&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tabler-icons.min.css">
+<style>
+:root {
+  --bg: #f5f5f5; --surface: #fff; --border: #e0e0e0;
+  --text: #1a1a1a; --text2: #666; --accent: #6366f1;
+  --accent-hover: #4f46e5; --danger: #ef4444; --danger-hover: #dc2626;
+  --green: #22c55e; --orange: #f59e0b; --radius: 10px;
+  --shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+[data-theme="dark"] {
+  --bg: #111; --surface: #1a1a1a; --border: #2a2a2a;
+  --text: #e5e5e5; --text2: #999; --accent: #818cf8;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'Inter','Noto Sans SC',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+header {
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:12px 20px; display:flex; align-items:center; justify-content:space-between;
+  position:sticky; top:0; z-index:100;
+}
+.logo { font-weight:600; font-size:16px; }
+.logo span { color:var(--accent); }
+.hdr-right { display:flex; gap:8px; align-items:center; }
+.theme-btn { background:none; border:1px solid var(--border); color:var(--text); padding:6px 10px; border-radius:6px; cursor:pointer; font-size:13px; }
+.theme-btn:hover { background:var(--border); }
+.container { max-width:1200px; margin:0 auto; padding:20px; }
+
+.tabs { display:flex; gap:0; margin-bottom:20px; border-bottom:1px solid var(--border); }
+.tab {
+  padding:10px 20px; cursor:pointer; border:none; background:none;
+  color:var(--text2); font-size:14px; border-bottom:2px solid transparent;
+  transition:all .15s;
+}
+.tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.tab:hover { color:var(--text); }
+
+.panel { display:none; }
+.panel.active { display:block; }
+
+.card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:16px; box-shadow:var(--shadow); }
+.card h3 { font-size:15px; margin-bottom:12px; display:flex; align-items:center; gap:8px; }
+.card h3 i { color:var(--accent); }
+
+.upload-zone {
+  border:2px dashed var(--border); border-radius:var(--radius); padding:40px 20px;
+  text-align:center; cursor:pointer; transition:all .2s; background:var(--bg);
+}
+.upload-zone:hover, .upload-zone.dragover { border-color:var(--accent); background:rgba(99,102,241,.05); }
+.upload-zone .icon { font-size:40px; color:var(--accent); margin-bottom:8px; }
+.upload-zone p { color:var(--text2); font-size:14px; }
+.upload-zone .hint { font-size:12px; color:var(--text2); margin-top:4px; }
+
+.file-list { margin-top:12px; }
+.file-item {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 12px; background:var(--bg); border-radius:6px; margin-bottom:4px; font-size:13px;
+}
+.file-item .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-item .remove { color:var(--danger); cursor:pointer; margin-left:8px; font-size:16px; }
+
+.settings-row { display:flex; gap:12px; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap; }
+.settings-row label { font-size:13px; color:var(--text2); display:block; margin-bottom:4px; }
+.settings-row input { padding:8px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--text); font-size:13px; width:120px; }
+
+.btn {
+  padding:8px 16px; border:none; border-radius:6px; cursor:pointer;
+  font-size:13px; font-weight:500; transition:all .15s; display:inline-flex; align-items:center; gap:6px;
+}
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent-hover); }
+.btn-danger { background:var(--danger); color:#fff; }
+.btn-danger:hover { background:var(--danger-hover); }
+.btn-outline { background:none; border:1px solid var(--border); color:var(--text); }
+.btn-outline:hover { background:var(--border); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+
+.stats { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; margin-bottom:16px; }
+.stat-item { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; text-align:center; }
+.stat-item .num { font-size:28px; font-weight:600; color:var(--accent); }
+.stat-item .label { font-size:12px; color:var(--text2); margin-top:4px; }
+
+.doc-table { width:100%; border-collapse:collapse; font-size:13px; }
+.doc-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border); color:var(--text2); font-weight:500; }
+.doc-table td { padding:8px 12px; border-bottom:1px solid var(--border); }
+.doc-table tr:hover td { background:var(--bg); }
+
+.msg { padding:10px 14px; border-radius:6px; font-size:13px; margin-top:8px; }
+.msg-success { background:rgba(34,197,94,.1); color:var(--green); border:1px solid rgba(34,197,94,.2); }
+.msg-error { background:rgba(239,68,68,.1); color:var(--danger); border:1px solid rgba(239,68,68,.2); }
+.msg-info { background:rgba(99,102,241,.1); color:var(--accent); border:1px solid rgba(99,102,241,.2); }
+
+.search-box { display:flex; gap:8px; margin-bottom:12px; }
+.search-box input { flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:var(--radius); background:var(--bg); color:var(--text); font-size:14px; }
+.search-box input:focus { outline:none; border-color:var(--accent); }
+.search-box .btn { padding:10px 20px; }
+
+.result-item {
+  padding:14px; background:var(--bg); border-radius:8px; margin-bottom:10px; border-left:3px solid var(--accent);
+}
+.result-item .meta { font-size:11px; color:var(--text2); margin-bottom:6px; display:flex; gap:12px; }
+.result-item .meta .score { color:var(--accent); font-weight:600; }
+.result-item .text { font-size:13px; line-height:1.6; }
+
+.chat-area { max-height:500px; overflow-y:auto; }
+.chat-msg { padding:10px 14px; border-radius:8px; margin-bottom:8px; font-size:13px; line-height:1.6; max-width:85%; }
+.chat-msg.user { background:var(--accent); color:#fff; margin-left:auto; }
+.chat-msg.assistant { background:var(--bg); border:1px solid var(--border); }
+.chat-msg .label { font-size:11px; opacity:.7; margin-bottom:4px; }
+
+.sources { margin-top:12px; }
+.source-item { font-size:12px; color:var(--text2); padding:6px 8px; background:var(--bg); border-radius:4px; margin-bottom:4px; }
+.source-item .idx { color:var(--accent); font-weight:600; }
+
+progress { width:100%; height:6px; border-radius:3px; margin-top:8px; }
+progress::-webkit-progress-bar { background:var(--border); border-radius:3px; }
+progress::-webkit-progress-value { background:var(--accent); border-radius:3px; }
+
+@media (max-width:640px) {
+  .container { padding:12px; }
+  .stats { grid-template-columns:repeat(2,1fr); }
+}
+</style>
+</head>
+<body data-theme="light">
+<header>
+  <div class="logo">📚 <span>RAG</span> 知识库管理</div>
+  <div class="hdr-right">
+    <button class="theme-btn" onclick="toggleTheme()" title="切换主题">🌓 主题</button>
+    <a href="chat_index.html" style="text-decoration:none"><button class="btn btn-outline">💬 回到聊天</button></a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- 状态统计 -->
+  <div class="stats" id="stats"></div>
+
+  <!-- 标签页 -->
+  <div class="tabs">
+    <button class="tab active" data-tab="tab-upload">📤 上传文档</button>
+    <button class="tab" data-tab="tab-manage">📋 文档管理</button>
+    <button class="tab" data-tab="tab-search">🔍 知识检索</button>
+    <button class="tab" data-tab="tab-chat">💬 知识问答</button>
+  </div>
+
+  <!-- 上传面板 -->
+  <div class="panel active" id="tab-upload">
+    <div class="card">
+      <h3><i class="ti ti-upload"></i> 上传文档到知识库</h3>
+      <div class="upload-zone" id="upload-zone">
+        <div class="icon">📁</div>
+        <p>点击选择文件或拖拽文件到此处</p>
+        <p class="hint">支持 PDF / Word / HTML / Markdown / TXT，单文件最大 50MB，可多选</p>
+      </div>
+      <input type="file" id="file-input" multiple accept=".pdf,.docx,.doc,.html,.htm,.md,.markdown,.txt" style="display:none">
+      <div class="file-list" id="file-list"></div>
+      <div class="settings-row" style="margin-top:12px">
+        <div>
+          <label>分块大小 (chunk_size)</label>
+          <input type="number" id="chunk-size" value="512" min="128" max="2048">
+        </div>
+        <div>
+          <label>重叠大小 (chunk_overlap)</label>
+          <input type="number" id="chunk-overlap" value="64" min="0" max="512">
+        </div>
+        <button class="btn btn-primary" id="upload-btn" disabled>🚀 开始索引</button>
+      </div>
+      <div id="upload-progress" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <!-- 文档管理面板 -->
+  <div class="panel" id="tab-manage">
+    <div class="card">
+      <h3><i class="ti ti-files"></i> 已索引文档</h3>
+      <div id="doc-list">
+        <p style="color:var(--text2);font-size:13px">加载中...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 知识检索面板 -->
+  <div class="panel" id="tab-search">
+    <div class="card">
+      <h3><i class="ti ti-search"></i> 语义检索</h3>
+      <div class="search-box">
+        <input type="text" id="search-query" placeholder="输入检索关键词..." onkeydown="if(event.key==='Enter') doSearch()">
+        <button class="btn btn-primary" onclick="doSearch()">搜索</button>
+      </div>
+      <div class="settings-row">
+        <div>
+          <label>返回数量</label>
+          <input type="number" id="search-topk" value="5" min="1" max="20" style="width:80px">
+        </div>
+      </div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+
+  <!-- 知识问答面板 -->
+  <div class="panel" id="tab-chat">
+    <div class="card">
+      <h3><i class="ti ti-messages"></i> 基于知识库的智能问答</h3>
+      <div class="chat-area" id="chat-area"></div>
+      <div class="search-box" style="margin-top:12px">
+        <input type="text" id="chat-input" placeholder="基于知识库提问..." onkeydown="if(event.key==='Enter') doRagChat()">
+        <button class="btn btn-primary" id="chat-send-btn" onclick="doRagChat()">发送</button>
+      </div>
+      <div id="chat-sources" class="sources"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── 全局状态 ──
+let selectedFiles = [];
+const API = '/knowledge';
+
+// ── 主题切换 ──
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-theme', next);
+  localStorage.setItem('kb-theme', next);
+}
+(function() {
+  const saved = localStorage.getItem('kb-theme');
+  if (saved) document.documentElement.setAttribute('data-theme', saved);
+})();
+
+// ── 标签页切换 ──
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.getElementById(t.dataset.tab).classList.add('active');
+    if (t.dataset.tab === 'tab-manage') loadDocuments();
+    if (t.dataset.tab === 'tab-upload') loadStats();
+  });
+});
+
+// ── 文件选择 ──
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+const fileList = document.getElementById('file-list');
+const uploadBtn = document.getElementById('upload-btn');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+
+function handleFiles(files) {
+  selectedFiles = Array.from(files).filter(f => {
+    const ext = '.' + f.name.split('.').pop().toLowerCase();
+    return ['.pdf','.docx','.doc','.html','.htm','.md','.markdown','.txt'].includes(ext);
+  });
+  renderFileList();
+}
+
+function renderFileList() {
+  if (selectedFiles.length === 0) {
+    fileList.innerHTML = '';
+    uploadBtn.disabled = true;
+    return;
+  }
+  fileList.innerHTML = selectedFiles.map((f, i) =>
+    `<div class="file-item"><span class="name">📄 ${f.name}</span><span class="remove" onclick="removeFile(${i})">✕</span></div>`
+  ).join('');
+  uploadBtn.disabled = false;
+}
+
+function removeFile(i) {
+  selectedFiles.splice(i, 1);
+  renderFileList();
+}
+
+// ── 上传并索引 ──
+uploadBtn.addEventListener('click', async () => {
+  if (selectedFiles.length === 0) return;
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = '⏳ 正在索引...';
+  const progress = document.getElementById('upload-progress');
+  progress.innerHTML = '';
+
+  const formData = new FormData();
+  selectedFiles.forEach(f => formData.append('files', f));
+  const cs = document.getElementById('chunk-size').value;
+  const co = document.getElementById('chunk-overlap').value;
+  const url = `${API}/upload?chunk_size=${cs}&chunk_overlap=${co}`;
+
+  try {
+    const resp = await fetch(url, { method: 'POST', body: formData });
+    const data = await resp.json();
+    if (data.ok) {
+      const cls = data.error_count > 0 ? 'msg-info' : 'msg-success';
+      progress.innerHTML = `<div class="msg ${cls}">✅ 成功索引 ${data.success_count} 个文档，${data.error_count} 个失败</div>`;
+      if (data.errors.length > 0) {
+        progress.innerHTML += data.errors.map(e => `<div class="msg msg-error">❌ ${e.filename}: ${e.error}</div>`).join('');
+      }
+    } else {
+      progress.innerHTML = `<div class="msg msg-error">上传失败：${JSON.stringify(data.errors)}</div>`;
+    }
+    selectedFiles = [];
+    renderFileList();
+    loadStats();
+  } catch (e) {
+    progress.innerHTML = `<div class="msg msg-error">网络错误: ${e.message}</div>`;
+  }
+  uploadBtn.disabled = false;
+  uploadBtn.textContent = '🚀 开始索引';
+});
+
+// ── 加载状态 ──
+async function loadStats() {
+  try {
+    const resp = await fetch(`${API}/status`);
+    const s = await resp.json();
+    document.getElementById('stats').innerHTML = `
+      <div class="stat-item"><div class="num">${s.document_count || 0}</div><div class="label">已索引文档</div></div>
+      <div class="stat-item"><div class="num">${s.chunk_count || 0}</div><div class="label">向量块数</div></div>
+      <div class="stat-item"><div class="num">${s.embed_model || '-'}</div><div class="label">Embedding 模型</div></div>
+      <div class="stat-item"><div class="num">${s.ollama_embed_ok ? '✅ 正常' : '⚠️ 异常'}</div><div class="label">Ollama 状态</div></div>
+    `;
+  } catch (e) {
+    document.getElementById('stats').innerHTML = `<div class="stat-item"><div class="label">无法连接服务</div></div>`;
+  }
+}
+
+// ── 加载文档列表 ──
+async function loadDocuments() {
+  const el = document.getElementById('doc-list');
+  try {
+    const resp = await fetch(`${API}/documents`);
+    const data = await resp.json();
+    const docs = data.documents || [];
+    if (docs.length === 0) {
+      el.innerHTML = '<p style="color:var(--text2);font-size:13px">暂无已索引文档</p>';
+      return;
+    }
+    el.innerHTML = `
+      <table class="doc-table">
+        <thead><tr><th>文件名</th><th>分块数</th><th>索引时间</th><th>操作</th></tr></thead>
+        <tbody>${docs.map(d => `
+          <tr>
+            <td>📄 ${d.filename || d.doc_id}</td>
+            <td>${d.chunk_count || 0}</td>
+            <td>${(d.indexed_at || '').slice(0,16)}</td>
+            <td><button class="btn btn-danger" style="padding:4px 8px;font-size:11px" onclick="deleteDoc('${d.doc_id}')">删除</button></td>
+          </tr>
+        `).join('')}</tbody>
+      </table>
+    `;
+  } catch (e) {
+    el.innerHTML = `<p class="msg msg-error">加载失败: ${e.message}</p>`;
+  }
+}
+
+// ── 删除文档 ──
+async function deleteDoc(docId) {
+  if (!confirm('确认删除该文档及其所有向量索引？')) return;
+  try {
+    await fetch(`${API}/documents/${docId}`, { method: 'DELETE' });
+    loadDocuments();
+    loadStats();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
+}
+
+// ── 知识检索 ──
+async function doSearch() {
+  const query = document.getElementById('search-query').value.trim();
+  if (!query) return;
+  const topK = document.getElementById('search-topk').value;
+  const el = document.getElementById('search-results');
+  el.innerHTML = '<p style="color:var(--text2);font-size:13px">⏳ 检索中...</p>';
+
+  try {
+    const resp = await fetch(`${API}/search`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, top_k: parseInt(topK) }),
+    });
+    const data = await resp.json();
+    const results = data.results || [];
+    if (results.length === 0) {
+      el.innerHTML = '<p class="msg msg-info">未找到相关文档，请尝试调整查询关键词</p>';
+      return;
+    }
+    el.innerHTML = results.map(r => `
+      <div class="result-item">
+        <div class="meta">
+          <span>📄 ${r.filename}</span>
+          <span class="score">相关度: ${(r.score * 100).toFixed(1)}%</span>
+          <span>块 #${r.chunk_index}</span>
+        </div>
+        <div class="text">${escapeHtml(r.text)}</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<p class="msg msg-error">检索失败: ${e.message}</p>`;
+  }
+}
+
+// ── 知识问答 ──
+async function doRagChat() {
+  const input = document.getElementById('chat-input');
+  const query = input.value.trim();
+  if (!query) return;
+
+  const chatArea = document.getElementById('chat-area');
+  const sourcesEl = document.getElementById('chat-sources');
+  const sendBtn = document.getElementById('chat-send-btn');
+
+  chatArea.innerHTML += `<div class="chat-msg user"><div class="label">🧑 你</div>${escapeHtml(query)}</div>`;
+  input.value = '';
+  sendBtn.disabled = true;
+  sourcesEl.innerHTML = '';
+
+  const msgDiv = document.createElement('div');
+  msgDiv.className = 'chat-msg assistant';
+  msgDiv.innerHTML = '<div class="label">🤖 助手</div><span class="content">⏳ 思考中...</span>';
+  chatArea.appendChild(msgDiv);
+  chatArea.scrollTop = chatArea.scrollHeight;
+
+  try {
+    const resp = await fetch(`${API}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: query }],
+        stream: true,
+        model: 'qwen3',
+      }),
+    });
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let sources = [];
+    const contentSpan = msgDiv.querySelector('.content');
+    contentSpan.textContent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          if (data.done) {
+            sources = data.sources || [];
+            if (sources.length > 0) {
+              sourcesEl.innerHTML = '<p style="font-size:13px;color:var(--text2);margin-top:8px">📚 参考来源：</p>' +
+                sources.map(s => `<div class="source-item"><span class="idx">[文档${s.index}]</span> ${s.filename} (相关度: ${(s.score*100).toFixed(1)}%)</div>`).join('');
+            }
+          }
+          const content = data.message?.content || '';
+          if (content) {
+            fullText += content;
+            contentSpan.textContent = fullText;
+          }
+        } catch (e) {}
+      }
+    }
+    if (!fullText) contentSpan.textContent = '（无回复）';
+  } catch (e) {
+    msgDiv.querySelector('.content').textContent = `错误: ${e.message}`;
+  }
+  sendBtn.disabled = false;
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// ── 初始化 ──
+loadStats();
+</script>
+</body>
+</html>
