@@ -493,6 +493,25 @@ let currentPersona=localStorage.getItem('persona')||'default';
 
 // ── Constants ──────────────────────────────
 const API_HEADERS={'Content-Type':'application/json','ngrok-skip-browser-warning':'1'};
+// ── 访问口令：自动附带 X-Access-Token；401 时提示输入并重试一次 ──
+(function(){
+  const _f=window.fetch?window.fetch.bind(window):null;if(!_f)return;
+  window.fetch=function(input,init){
+    try{init=init||{};const t=localStorage.getItem('accessToken');if(t){init.headers=Object.assign({},init.headers||{},{'X-Access-Token':t});}}catch(e){}
+    return _f(input,init).then(async r=>{
+      if(r.status===401){
+        const t=prompt('请输入访问口令（Access Token）：');
+        if(t&&t.trim()){
+          try{localStorage.setItem('accessToken',t.trim());
+            init=init||{};init.headers=Object.assign({},init.headers||{},{'X-Access-Token':t.trim()});
+            return await _f(input,init);
+          }catch(e){}
+        }
+      }
+      return r;
+    });
+  };
+})();
 const SESSIONS_KEY='ai_chat_sessions_v1';
 const MAX_SESSIONS=4;
 
@@ -1822,19 +1841,23 @@ async function sendMessage(){
 }
 
 // ── Web search helpers ─────────────────────
+function buildSourcesList(results){
+  const list=document.createElement('div');list.className='search-results-list';
+  (results||[]).forEach(r=>{
+    const item=document.createElement('div');item.className='search-result-item';
+    const u=/^https?:\/\//i.test(r.url)?r.url:'#';
+    item.innerHTML='<a href="'+escHtml(u)+'" target="_blank" rel="noopener noreferrer">'+escHtml(r.title||r.url)+'</a>'+(r.snippet?('<div class="sr-snippet">'+escHtml(r.snippet)+'</div>'):'');
+    list.appendChild(item);
+  });
+  return list;
+}
 function buildSearchResultsBlock(results,query){
   const el=document.createElement('div');el.className='search-results-block collapsed';
   el.addEventListener('click',()=>el.classList.toggle('collapsed'));
   const label=document.createElement('div');label.className='search-results-label';
   const count=results.length;
   label.innerHTML=`<span class="toggle-icon">▾</span> 🔍 搜索到 ${count} 条来源 · "${escHtml(query.slice(0,40))}${query.length>40?'…':''}"`;
-  const list=document.createElement('div');list.className='search-results-list';
-  results.forEach(r=>{
-    const item=document.createElement('div');item.className='search-result-item';
-    const safeUrl=/^https?:\/\//i.test(r.url)?r.url:'#';
-    item.innerHTML=`<a href="${escHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escHtml(r.title)}</a><div class="sr-snippet">${escHtml(r.snippet||'')}</div>`;
-    list.appendChild(item);
-  });
+  const list=buildSourcesList(results);
   el.appendChild(label);el.appendChild(list);
   return el;
 }
@@ -1862,7 +1885,6 @@ function ensureAgentProcStyle(){
   document.head.appendChild(st);
 }
 function shortSummary(s,max){s=String(s==null?'':s).replace(/\s+/g,' ').trim();max=max||30;return s.length>max?(s.slice(0,max)+'…'):s;}
-function toolVerb(name){return ({web_search:'搜索',read_url:'读取网页',weather:'查询天气',get_time:'获取时间',calculator:'计算',generate_image:'生成图片'})[name]||name||'处理';}
 
 async function callAPI(model){
   // Capture session state at call time — survives session switches
@@ -2051,9 +2073,7 @@ async function callAPI(model){
           setLine((ev.ok?'✓ 已完成：':'✗ 失败：')+shortSummary((t&&t.summary)||ev.name,36),false);
           if(t&&ev.cards&&ev.cards.length){
             t.body.innerHTML='';
-            const list=document.createElement('div');list.className='search-results-list';
-            ev.cards.forEach(r=>{const it=document.createElement('div');it.className='search-result-item';const u=/^https?:\/\//i.test(r.url)?r.url:'#';it.innerHTML='<a href="'+escHtml(u)+'" target="_blank" rel="noopener noreferrer">'+escHtml(r.title||r.url)+'</a>';list.appendChild(it);});
-            t.body.appendChild(list);searchData={query:(t.summary||''),results:ev.cards};
+            t.body.appendChild(buildSourcesList(ev.cards));searchData={query:(t.summary||''),results:ev.cards};
           }else if(t){t.body.textContent=ev.content||'';}
           if(t&&ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(im);}
           if(t&&ev.video){const vd=document.createElement('video');vd.src=ev.video;vd.controls=true;vd.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(vd);}
