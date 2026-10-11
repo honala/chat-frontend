@@ -493,25 +493,6 @@ let currentPersona=localStorage.getItem('persona')||'default';
 
 // ── Constants ──────────────────────────────
 const API_HEADERS={'Content-Type':'application/json','ngrok-skip-browser-warning':'1'};
-// ── 访问口令：自动附带 X-Access-Token；401 时提示输入并重试一次 ──
-(function(){
-  const _f=window.fetch?window.fetch.bind(window):null;if(!_f)return;
-  window.fetch=function(input,init){
-    try{init=init||{};const t=localStorage.getItem('accessToken');if(t){init.headers=Object.assign({},init.headers||{},{'X-Access-Token':t});}}catch(e){}
-    return _f(input,init).then(async r=>{
-      if(r.status===401){
-        const t=prompt('请输入访问口令（Access Token）：');
-        if(t&&t.trim()){
-          try{localStorage.setItem('accessToken',t.trim());
-            init=init||{};init.headers=Object.assign({},init.headers||{},{'X-Access-Token':t.trim()});
-            return await _f(input,init);
-          }catch(e){}
-        }
-      }
-      return r;
-    });
-  };
-})();
 const SESSIONS_KEY='ai_chat_sessions_v1';
 const MAX_SESSIONS=4;
 
