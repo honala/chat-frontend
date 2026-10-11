@@ -2019,10 +2019,11 @@ async function callAPI(model){
           curStep=(ev.step||0);setLine('模型正在判断…',true);
         }else if(ev.type==='thinking'){
           if(thinkMode){
+            if(!thinkEl)createThinkBlockLive();
+            if(procEl)aiBubble.insertBefore(thinkEl,procEl);
             setLine('正在思考…',true);
-            const g=getStep(ev.step!=null?ev.step:curStep);
-            if(!g.think){g.think=document.createElement('div');g.think.className='agent-think';g.body.appendChild(g.think);}
-            g.think.textContent+=(ev.text||'');thinkCharCount+=(ev.text||'').length;scrollIfNeeded();
+            thinkBuf+=(ev.text||'');thinkCharCount+=(ev.text||'').length;
+            if(thinkTextEl)thinkTextEl.textContent=thinkBuf;scrollIfNeeded();
           }
         }else if(ev.type==='tool_call'){
           setLine('正在'+shortSummary(ev.summary,34)+' …',true);
@@ -2045,6 +2046,7 @@ async function callAPI(model){
           scrollIfNeeded();
         }else if(ev.type==='answer_delta'){
           setLine('✓ 处理完成，正在作答…',true);
+          if(!answerHeaderEl){if(thinkEl)finishThink();else{answerHeaderEl=makeAnswerHeader();aiBubble.insertBefore(answerHeaderEl,liveBar);}}
           contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
         }else if(ev.type==='done'){
           gotDone=true;
