@@ -1858,7 +1858,7 @@ function makeToolCard(summary){
 function ensureAgentProcStyle(){
   if(document.getElementById('agent-proc-style'))return;
   const st=document.createElement('style');st.id='agent-proc-style';
-  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}.agent-proc-label{position:relative;overflow:hidden}.agent-proc-text{display:inline-block;animation:agentrollin .28s cubic-bezier(.2,.7,.2,1)}.agent-proc-ghost{position:absolute;left:0;top:0;right:0;pointer-events:none;animation:agentrollout .26s ease forwards}@keyframes agentrollin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes agentrollout{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}@media (prefers-reduced-motion:reduce){.agent-proc-ghost{display:none}.agent-proc-text{animation:none}}';
+  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-caret{opacity:.6;font-size:10px;margin-right:2px;display:inline-block}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}.agent-proc-label{position:relative;overflow:hidden}.agent-proc-text{display:inline-block;animation:agentrollin .28s cubic-bezier(.2,.7,.2,1)}.agent-proc-ghost{position:absolute;left:0;top:0;right:0;pointer-events:none;animation:agentrollout .26s ease forwards}@keyframes agentrollin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes agentrollout{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}@media (prefers-reduced-motion:reduce){.agent-proc-ghost{display:none}.agent-proc-text{animation:none}}';
   document.head.appendChild(st);
 }
 function shortSummary(s,max){s=String(s==null?'':s).replace(/\s+/g,' ').trim();max=max||30;return s.length>max?(s.slice(0,max)+'…'):s;}
@@ -2016,13 +2016,15 @@ async function callAPI(model){
       const getStep=n=>{
         if(stepGroups[n])return stepGroups[n];
         const el=document.createElement('div');el.className='agent-step';
-        const hh=document.createElement('div');hh.className='agent-step-h';hh.textContent='步骤 '+(n+1);
+        const hh=document.createElement('div');hh.className='agent-step-h';
+        const car=document.createElement('span');car.className='agent-step-caret';car.textContent='▾';
+        hh.appendChild(car);hh.appendChild(document.createTextNode(' 步骤 '+(n+1)));
         const bd=document.createElement('div');bd.className='agent-step-body open';
         el.appendChild(hh);el.appendChild(bd);
-        hh.addEventListener('click',()=>bd.classList.toggle('open'));
+        hh.addEventListener('click',()=>{const o=bd.classList.toggle('open');car.textContent=o?'▾':'▸';});
         procBody.appendChild(el);
-        stepGroups[n]={body:bd,think:null};
-        for(const k in stepGroups){if(String(k)!==String(n))stepGroups[k].body.classList.remove('open');}
+        stepGroups[n]={body:bd,think:null,caret:car};
+        for(const k in stepGroups){if(String(k)!==String(n)){stepGroups[k].body.classList.remove('open');if(stepGroups[k].caret)stepGroups[k].caret.textContent='▸';}}
         return stepGroups[n];
       };
       for await(const ev of streamNdjsonLines(res)){
@@ -2030,7 +2032,7 @@ async function callAPI(model){
           curStep=(ev.step||0);setLine('模型正在判断…',true);
         }else if(ev.type==='thinking'){
           if(thinkMode){
-            if(!thinkEl){createThinkBlockLive();thinkEl.style.background='none';thinkEl.style.border='none';thinkEl.style.borderRadius='0';thinkEl.style.padding='0';}
+            if(!thinkEl){createThinkBlockLive();thinkEl.style.background='none';thinkEl.style.border='none';thinkEl.style.borderRadius='0';thinkEl.style.padding='0';thinkEl.style.pointerEvents='none';thinkEl.style.cursor='default';const _ti=thinkLabelEl&&thinkLabelEl.querySelector('.toggle-icon');if(_ti)_ti.style.display='none';}
             if(procEl)aiBubble.insertBefore(thinkEl,procEl);
             setLine('正在思考…',true);
             const g=getStep(ev.step!=null?ev.step:curStep);
