@@ -2019,7 +2019,7 @@ async function callAPI(model){
           curStep=(ev.step||0);setLine('模型正在判断…',true);
         }else if(ev.type==='thinking'){
           if(thinkMode){
-            if(!thinkEl)createThinkBlockLive();
+            if(!thinkEl){createThinkBlockLive();thinkEl.style.background='none';thinkEl.style.border='none';thinkEl.style.borderRadius='0';thinkEl.style.padding='0';}
             if(procEl)aiBubble.insertBefore(thinkEl,procEl);
             setLine('正在思考…',true);
             thinkBuf+=(ev.text||'');thinkCharCount+=(ev.text||'').length;
