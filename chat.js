@@ -516,7 +516,7 @@ let activeSessionId='';
 let sessionCounter=1;
 let chatHistory=[],displayLog=[],pendingFiles=[];
 let abortController=null;
-function getSystemMsg(){const p=PERSONAS[currentPersona];return p?[{role:'system',content:p}]:[];}
+function getSystemMsg(){const p=PERSONAS[currentPersona];const hint='\n\n[工具] 你拥有 web_search 工具，可联网检索实时信息。当问题涉及最新动态、事实核查、或超出你知识范围的内容时，请主动调用它（可多轮调用后综合回答）；不需要时直接回答。';return p?[{role:'system',content:p+hint}]:[{role:'system',content:hint}];}
 function getActiveSession(){return sessions.find(s=>s.id===activeSessionId);}
 function genId(){return 's'+Date.now()+Math.random().toString(36).slice(2,6);}
 
@@ -774,7 +774,7 @@ document.addEventListener('visibilitychange',()=>{
 // ── Think mode ─────────────────────────────
 let thinkMode=localStorage.getItem('thinkMode')==='true';
 let genMode='chat';
-let webMode=localStorage.getItem('webMode')==='true';
+let webMode=localStorage.getItem('webMode')!=='false';
 let videoPollInterval=null;
 function applyThinkMode(){
   localStorage.setItem('thinkMode',thinkMode);
@@ -881,7 +881,7 @@ function renderStatusPills(){
 renderStatusPills();
 
 // ── Tool Calling search mode (Beta) ─────────
-let toolCallingMode=localStorage.getItem('toolCallingMode')==='true';
+let toolCallingMode=localStorage.getItem('toolCallingMode')!=='false';
 function saveToolCallingMode(){localStorage.setItem('toolCallingMode',toolCallingMode);}
 
 // ── Model parameters (temperature / top_p) ──
@@ -928,10 +928,10 @@ function renderSettingsPanel(panel, _savedProviders){
   searchSection.innerHTML='<div class="settings-section-label"><i class="ti ti-search icon-md"></i> 搜索方式</div>';
   const searchRow=document.createElement('div');searchRow.className='settings-theme-row';
   const preSearchBtn=document.createElement('button');preSearchBtn.className='settings-theme-btn'+(pendingToolCalling?'':' active');
-  preSearchBtn.innerHTML='<i class="ti ti-file-search icon-md"></i> 预搜索';preSearchBtn.title='前端提取关键词直接搜索';
+  preSearchBtn.innerHTML='<i class="ti ti-file-search icon-md"></i> 强制联网';preSearchBtn.title='每次都先用你的问题搜一遍';
   preSearchBtn.addEventListener('click',()=>{pendingToolCalling=false;preSearchBtn.classList.add('active');toolCallBtn.classList.remove('active');});
   const toolCallBtn=document.createElement('button');toolCallBtn.className='settings-theme-btn'+(pendingToolCalling?' active':'');
-  toolCallBtn.innerHTML='<i class="ti ti-function icon-md"></i> Tool Calling <sup style="font-size:9px;opacity:0.7">Beta</sup>';toolCallBtn.title='模型自主决定搜索内容和时机';
+  toolCallBtn.innerHTML='<i class="ti ti-function icon-md"></i> 自动（模型判断）';toolCallBtn.title='模型自动决定是否联网、搜什么（可多轮）';
   toolCallBtn.addEventListener('click',()=>{pendingToolCalling=true;toolCallBtn.classList.add('active');preSearchBtn.classList.remove('active');});
   searchRow.appendChild(preSearchBtn);searchRow.appendChild(toolCallBtn);
   searchSection.appendChild(searchRow);
@@ -1958,103 +1958,59 @@ async function fulfillToolCalls(toolCalls){
   return {calls,toolMsgs,searchData,toolQuery};
 }
 
-async function performToolCallingSearch(model, abortSignal, history=chatHistory){
-  // Returns {searchData, toolQuery, toolCallMsg, toolResultMsgs} or null if model chose not to call tools
+
+async function callToolOnce(model,provider,isOpenAI,isFree,messages,tools,abortSignal){
+  // 单次“模型决策”调用：返回 assistant 消息（可能带 tool_calls），供多轮循环使用。
+  try{
+    if(isOpenAI){
+      const res=await fetch('/api/external/tool',{method:'POST',headers:API_HEADERS,
+        body:JSON.stringify({provider_id:provider.id,model:realModelName(model),messages:normalizeMessages(messages),tools,temperature:modelParams.temperature,top_p:modelParams.topP}),
+        signal:abortSignal});
+      if(!res.ok)return null;
+      const data=await res.json();
+      return data?.choices?.[0]?.message||null;
+    }
+    if(isFree){
+      const res=await fetch('/papi/free-llm/tool',{method:'POST',headers:API_HEADERS,
+        body:JSON.stringify({model:realModelName(model),messages:normalizeMessages(messages),tools,temperature:modelParams.temperature,top_p:modelParams.topP}),
+        signal:abortSignal});
+      if(!res.ok)return null;
+      const data=await res.json();
+      return data?.choices?.[0]?.message||null;
+    }
+    const res=await fetch('/api/chat',{method:'POST',headers:API_HEADERS,
+      body:JSON.stringify({model:realModelName(model),messages:messages.map(m=>{const msg={role:m.role};if(m.tool_calls){msg.tool_calls=m.tool_calls;}else{msg.content=m.content||'';}if(m.tool_call_id)msg.tool_call_id=m.tool_call_id;return msg;}),tools,stream:false}),
+      signal:abortSignal});
+    if(!res.ok)return null;
+    const data=await res.json();
+    return data?.message||null;
+  }catch(e){console.warn('callToolOnce failed:',e);return null;}
+}
+
+async function runToolLoop(model,abortSignal,history,maxSteps=4){
+  // 多轮工具循环（Agent Loop）：模型可连续多轮调用工具，直到给出文字答复或达到步数上限。
+  // 返回 {newMsgs,searchBlocks,calledAny}；newMsgs 为需追加进历史的新消息（assistant/tool 严格配对）。
   const provider=providerForModel(model);
   const isOpenAI=!!provider;
   const isFree=model.startsWith(FREE_PREFIX);
-
-  // Build messages without search context (model decides what to call)
-  const msgs=trimHistory(history,MAX_HISTORY);
   const tools=[SEARCH_TOOL_DEF];
-
-  try{
-    if(isOpenAI){
-      // ── OpenAI-compatible tool calling (via backend proxy) ──
-      const oaiMessages=normalizeMessages(msgs);
-      const res=await fetch('/api/external/tool',{
-        method:'POST',
-        headers:API_HEADERS,
-        body:JSON.stringify({
-          provider_id:provider.id,
-          model:realModelName(model),
-          messages:oaiMessages,
-          tools:tools,
-          temperature:modelParams.temperature,
-          top_p:modelParams.topP
-        }),
-        signal:abortSignal
-      });
-      if(!res.ok)return null;
-      const data=await res.json();
-      const msg=data?.choices?.[0]?.message;
-      if(!msg)return null;
-      const toolCalls=msg.tool_calls;
-      if(!toolCalls||!toolCalls.length)return null;
-      // A+B：执行全部 tool_call，并为每个 id 生成对应 tool 回复
-      const reasoning=msg.reasoning_content||null;
-      const r=await fulfillToolCalls(toolCalls);
-      const toolCallMsg={role:'assistant',tool_calls:r.calls};
-      if(reasoning)toolCallMsg.reasoning_content=reasoning;
-      return {searchData:r.searchData,toolQuery:r.toolQuery,toolCallMsg,toolResultMsgs:r.toolMsgs};
-    }
-
-    if(isFree){
-      // ── Free-LLM (DeepSeek via bridge) tool calling ──
-      // Normalize messages to OpenAI format (strip reasoning_content, images, etc.)
-      // /free-llm/tool always uses thinking=disabled
-      const freeMsgs=normalizeMessages(msgs);
-      const res=await fetch('/papi/free-llm/tool',{
-        method:'POST',
-        headers:API_HEADERS,
-        body:JSON.stringify({
-          model:realModelName(model),
-          messages:freeMsgs,
-          tools:tools,
-          temperature:modelParams.temperature,
-          top_p:modelParams.topP
-        }),
-        signal:abortSignal
-      });
-      if(!res.ok)return null;
-      const data=await res.json();
-      const msg=data?.choices?.[0]?.message;
-      if(!msg)return null;
-      const toolCalls=msg.tool_calls;
-      if(!toolCalls||!toolCalls.length)return null;
-      // A+B：执行全部 tool_call，并为每个 id 生成对应 tool 回复
-      const reasoningFree=msg.reasoning_content||null;
-      const rFree=await fulfillToolCalls(toolCalls);
-      const toolCallMsgFree={role:'assistant',tool_calls:rFree.calls};
-      if(reasoningFree)toolCallMsgFree.reasoning_content=reasoningFree;
-      return {searchData:rFree.searchData,toolQuery:rFree.toolQuery,toolCallMsg:toolCallMsgFree,toolResultMsgs:rFree.toolMsgs};
-    }
-
-    // ── Ollama tool calling ──
-    const res=await fetch('/api/chat',{
-      method:'POST',
-      headers:API_HEADERS,
-      body:JSON.stringify({
-        model:realModelName(model),
-        messages:msgs.map(m=>{const msg={role:m.role};if(m.tool_calls){msg.tool_calls=m.tool_calls;}else{msg.content=m.content||'';}if(m.tool_call_id)msg.tool_call_id=m.tool_call_id;return msg;}),
-        tools:tools,
-        stream:false
-      }),
-      signal:abortSignal
-    });
-    if(!res.ok)return null;
-    const data=await res.json();
-    const msg=data?.message;
-    if(!msg)return null;
-    const toolCalls=msg.tool_calls;
-    if(!toolCalls||!toolCalls.length)return null;
-    // A+B：执行全部 tool_call，并为每个 id 生成对应 tool 回复（Ollama 缺 id 时自动补）
-    const rOll=await fulfillToolCalls(toolCalls);
-    return {searchData:rOll.searchData,toolQuery:rOll.toolQuery,toolCallMsg:{role:'assistant',tool_calls:rOll.calls},toolResultMsgs:rOll.toolMsgs};
-  }catch(e){
-    console.warn('Tool calling search failed:',e);
-    return null;
+  const base=trimHistory(history,MAX_HISTORY);
+  const work=base.slice();
+  const searchBlocks=[];
+  let calledAny=false;
+  for(let step=0;step<maxSteps;step++){
+    const msg=await callToolOnce(model,provider,isOpenAI,isFree,work,tools,abortSignal);
+    if(!msg)break;
+    if(!msg.tool_calls||!msg.tool_calls.length)break; // 模型准备作答，结束循环
+    calledAny=true;
+    const r=await fulfillToolCalls(msg.tool_calls);
+    if(r.searchData)searchBlocks.push({query:r.toolQuery,results:r.searchData.results});
+    const asst={role:'assistant',tool_calls:r.calls};
+    if(msg.reasoning_content)asst.reasoning_content=msg.reasoning_content;
+    work.push(asst);
+    for(const tm of r.toolMsgs)work.push(tm);
   }
+  return {newMsgs:work.slice(base.length),searchBlocks,calledAny};
 }
 
 async function executeToolSearch(query){
@@ -2179,27 +2135,25 @@ async function callAPI(model){
   const provider=providerForModel(model);
   const isOpenAI=!!provider;
 
-  // ── Web search (requires webMode + toolCallingMode) ──
+  // ── 自动工具循环（Agent Loop）──
   let searchData=null;
   if(webMode&&toolCallingMode){
     const pending=document.createElement('div');pending.className='search-results-block';
-    pending.innerHTML='<div class="search-results-label">🤔 模型正在决定…</div>';
+    pending.innerHTML='<div class="search-results-label">🤔 模型正在判断是否需要联网…</div>';
     aiBubble.insertBefore(pending,liveBar);
-    const toolResult=await performToolCallingSearch(model, abortController.signal, CH);
+    const loopRes=await runToolLoop(model, abortController.signal, CH, 4);
     pending.remove();
-    if(toolResult){
-      if(toolResult.toolCallMsg)CH.push(toolResult.toolCallMsg);
-      for(const tm of (toolResult.toolResultMsgs||[]))CH.push(tm);
+    if(loopRes&&loopRes.newMsgs&&loopRes.newMsgs.length){
+      for(const m of loopRes.newMsgs)CH.push(m);
       saveToStorage();
-      searchData=toolResult.searchData||null;
-      if(searchData){
-        const searchBlock=buildSearchResultsBlock(searchData.results,'🤖 '+toolResult.toolQuery);
+    }
+    if(loopRes&&loopRes.searchBlocks&&loopRes.searchBlocks.length){
+      for(const sb of loopRes.searchBlocks){
+        const searchBlock=buildSearchResultsBlock(sb.results,'🤖 '+sb.query);
         aiBubble.insertBefore(searchBlock,liveBar);
-      }else{
-        const noRes=document.createElement('div');noRes.className='search-results-block collapsed';
-        noRes.innerHTML='<div class="search-results-label">🔍 已调用搜索但无结果</div>';
-        aiBubble.insertBefore(noRes,liveBar);
       }
+      const last=loopRes.searchBlocks[loopRes.searchBlocks.length-1];
+      searchData={query:last.query,results:last.results};
     }else{
       const noSearch=document.createElement('div');noSearch.className='search-results-block collapsed';
       noSearch.innerHTML='<div class="search-results-label">🤔 模型决定不搜索，直接回答</div>';
