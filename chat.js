@@ -2063,7 +2063,7 @@ async function callAPI(model){
           if(ev.options&&ev.options.length)pendingAskOpts=ev.options.slice();
         }else if(ev.type==='answer_delta'){
           setLine('✓ 处理完成，正在作答…',true);
-          if(!answerHeaderEl){if(thinkEl)finishThink();else{answerHeaderEl=makeAnswerHeader();aiBubble.insertBefore(answerHeaderEl,liveBar);}}
+          if(!answerHeaderEl){if(thinkEl)finishThink();else{answerHeaderEl=makeAnswerHeader();aiBubble.insertBefore(answerHeaderEl,liveBar);}if(thinkEl&&thinkLabelEl){const _ti=thinkLabelEl.querySelector('.toggle-icon');if(_ti)_ti.style.display='none';}}
           contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
         }else if(ev.type==='done'){
           gotDone=true;
@@ -2090,6 +2090,7 @@ async function callAPI(model){
         aiBubble.insertBefore(w,liveBar);
       }
       finalize(answerTokens||contentTokenCount, genMs>0?(genMs*1000000):0);
+      if(thinkEl&&thinkLabelEl){const _ti=thinkLabelEl.querySelector('.toggle-icon');if(_ti)_ti.style.display='none';}
       if(pendingAskOpts&&pendingAskOpts.length){
         const row=document.createElement('div');row.className='agent-ask-opts';
         pendingAskOpts.forEach(o=>{const b=document.createElement('button');b.className='agent-ask-opt';b.type='button';b.textContent=o;b.addEventListener('click',()=>{try{row.remove();inputEl.value=o;inputEl.focus();sendMessage();}catch(_){}});row.appendChild(b);});
