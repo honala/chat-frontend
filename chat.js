@@ -868,14 +868,6 @@ function renderStatusPills(){
     x.addEventListener('click',()=>{thinkMode=false;applyThinkMode();updateToolMenu();renderStatusPills();});
     p.appendChild(x);el.appendChild(p);
   }
-  if(webMode){
-    const p=document.createElement('div');p.className='status-pill';
-    const i=document.createElement('i');i.className='ti ti-world';p.appendChild(i);
-    p.appendChild(document.createTextNode(' 联网'));
-    const x=document.createElement('span');x.className='pill-x';x.textContent='×';
-    x.addEventListener('click',()=>{webMode=false;applyWebMode();updateToolMenu();renderStatusPills();});
-    p.appendChild(x);el.appendChild(p);
-  }
   refreshPillOverflow();
 }
 renderStatusPills();
@@ -921,21 +913,6 @@ function renderSettingsPanel(panel, _savedProviders){
   themeRow.appendChild(darkBtn);themeRow.appendChild(lightBtn);
   themeSection.appendChild(themeRow);
   panel.appendChild(themeSection);
-
-  // ── 搜索方式 ──
-  let pendingToolCalling=toolCallingMode;
-  const searchSection=document.createElement('div');searchSection.className='settings-section';
-  searchSection.innerHTML='<div class="settings-section-label"><i class="ti ti-search icon-md"></i> 搜索方式</div>';
-  const searchRow=document.createElement('div');searchRow.className='settings-theme-row';
-  const preSearchBtn=document.createElement('button');preSearchBtn.className='settings-theme-btn'+(pendingToolCalling?'':' active');
-  preSearchBtn.innerHTML='<i class="ti ti-file-search icon-md"></i> 强制联网';preSearchBtn.title='每次都先用你的问题搜一遍';
-  preSearchBtn.addEventListener('click',()=>{pendingToolCalling=false;preSearchBtn.classList.add('active');toolCallBtn.classList.remove('active');});
-  const toolCallBtn=document.createElement('button');toolCallBtn.className='settings-theme-btn'+(pendingToolCalling?' active':'');
-  toolCallBtn.innerHTML='<i class="ti ti-function icon-md"></i> 自动（模型判断）';toolCallBtn.title='模型自动决定是否联网、搜什么（可多轮）';
-  toolCallBtn.addEventListener('click',()=>{pendingToolCalling=true;toolCallBtn.classList.add('active');preSearchBtn.classList.remove('active');});
-  searchRow.appendChild(preSearchBtn);searchRow.appendChild(toolCallBtn);
-  searchSection.appendChild(searchRow);
-  panel.appendChild(searchSection);
 
   // ── 模型参数 ──
   const paramSection=document.createElement('div');paramSection.className='settings-section';
@@ -1012,8 +989,6 @@ function renderSettingsPanel(panel, _savedProviders){
     saveModelParams();
     apiProviders=pendingProviders;
     saveApiProviders();
-    toolCallingMode=pendingToolCalling;
-    saveToolCallingMode();
     closeSettings();loadModels();
   });
   const cancelBtn=document.createElement('button');cancelBtn.className='settings-cancel-btn';cancelBtn.textContent='取消';
@@ -1134,7 +1109,6 @@ async function loadModels(){
   // Add think toggle + divider
   const div=document.createElement('div');div.className='dd-divider';dd.appendChild(div);
   renderThinkToggle(dd);
-  renderWebToggle(dd);
 
 }
 function selectModel(m){
@@ -1151,20 +1125,10 @@ function renderThinkToggle(dd){
   if(!el){
     el=document.createElement('button');el.className='dd-think';
     el.innerHTML='<i class="ti ti-bulb"></i> 思考 <span class="dd-think-slider"></span>';
-    el.addEventListener('click',e=>{e.stopPropagation();thinkMode=!thinkMode;applyThinkMode();renderThinkToggle(dd);renderWebToggle(dd);});
+    el.addEventListener('click',e=>{e.stopPropagation();thinkMode=!thinkMode;applyThinkMode();renderThinkToggle(dd);});
     dd.appendChild(el);
   }
   el.classList.toggle('on',thinkMode);
-}
-function renderWebToggle(dd){
-  let el=dd.querySelector('.dd-web');
-  if(!el){
-    el=document.createElement('button');el.className='dd-think dd-web';
-    el.innerHTML='<i class="ti ti-world"></i> 联网搜索 <span class="dd-think-slider"></span>';
-    el.addEventListener('click',e=>{e.stopPropagation();webMode=!webMode;applyWebMode();renderWebToggle(dd);});
-    dd.appendChild(el);
-  }
-  el.classList.toggle('on',webMode);
 }
 // Pill click: position dropdown below pill, open
 modelSelect.addEventListener('click',()=>{
@@ -2074,6 +2038,21 @@ async function executeToolSearch(query){
 }
 
 // ── Core streaming API call ────────────────
+function makeToolCard(summary){
+  const card=document.createElement('div');card.className='search-results-block tool-card';
+  const head=document.createElement('div');
+  head.style.cssText='display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px';
+  const icon=document.createElement('span');icon.textContent='⏳';
+  const title=document.createElement('span');title.textContent=summary||'';title.style.flex='1';
+  const caret=document.createElement('span');caret.textContent='▸';caret.style.opacity='0.6';caret.style.fontSize='11px';
+  head.appendChild(icon);head.appendChild(title);head.appendChild(caret);
+  const body=document.createElement('div');
+  body.style.cssText='display:none;margin-top:6px;font-size:12px;white-space:pre-wrap;opacity:0.8;max-height:240px;overflow:auto';
+  card.appendChild(head);card.appendChild(body);
+  head.addEventListener('click',()=>{const open=body.style.display!=='none';body.style.display=open?'none':'block';caret.textContent=open?'▸':'▾';});
+  return {card,icon,title,body};
+}
+
 async function callAPI(model){
   // Capture session state at call time — survives session switches
   const CH=chatHistory, DL=displayLog, sid=activeSessionId;
@@ -2182,167 +2161,46 @@ async function callAPI(model){
   const provider=providerForModel(model);
   const isOpenAI=!!provider;
 
-  // ── 自动工具循环（Agent Loop）──
-  let searchData=null;
-  if(webMode&&toolCallingMode){
-    const pending=document.createElement('div');pending.className='search-results-block';
-    pending.innerHTML='<div class="search-results-label">🤔 模型正在判断是否需要联网…</div>';
-    aiBubble.insertBefore(pending,liveBar);
-    const loopRes=await runToolLoop(model, abortController.signal, CH, 4);
-    pending.remove();
-    if(loopRes&&loopRes.newMsgs&&loopRes.newMsgs.length){
-      for(const m of loopRes.newMsgs)CH.push(m);
-      saveToStorage();
-    }
-    const _notes=(loopRes&&loopRes.toolNotes)||[];
-    if(_notes.length){
-      const tn=document.createElement('div');tn.className='search-results-block collapsed';
-      tn.innerHTML='<div class="search-results-label">🛠 '+_notes.map(escHtml).join('　')+'</div>';
-      aiBubble.insertBefore(tn,liveBar);
-    }
-    if(loopRes&&loopRes.searchBlocks&&loopRes.searchBlocks.length){
-      for(const sb of loopRes.searchBlocks){
-        const searchBlock=buildSearchResultsBlock(sb.results,'🤖 '+sb.query);
-        aiBubble.insertBefore(searchBlock,liveBar);
-      }
-      const last=loopRes.searchBlocks[loopRes.searchBlocks.length-1];
-      searchData={query:last.query,results:last.results};
-    }else if(!_notes.length){
-      const noSearch=document.createElement('div');noSearch.className='search-results-block collapsed';
-      noSearch.innerHTML='<div class="search-results-label">🤔 模型决定不搜索，直接回答</div>';
-      aiBubble.insertBefore(noSearch,liveBar);
-    }
-  }
-  if(webMode&&!toolCallingMode){
-      const searchPending=document.createElement('div');searchPending.className='search-results-block';
-      searchPending.innerHTML='<div class="search-results-label">🔍 正在搜索网页…</div>';
-      aiBubble.insertBefore(searchPending,liveBar);
-      const query=extractSearchQuery(CH);
-      searchData=query?await executeToolSearch(query):null;
-      searchPending.remove();
-      if(searchData&&searchData.results.length){
-        const searchBlock=buildSearchResultsBlock(searchData.results,searchData.query);
-        aiBubble.insertBefore(searchBlock,liveBar);
-      }else{
-        const noResults=document.createElement('div');noResults.className='search-results-block collapsed';
-        noResults.innerHTML='<div class="search-results-label">🔍 搜索无结果</div>';
-        aiBubble.insertBefore(noResults,liveBar);
-      }
-    }
-
-  if(isOpenAI){
-    // ── External API via backend proxy (key never leaves server) ──
-    const oaiModel=realModelName(model);
+  if(isOpenAI||model.startsWith(FREE_PREFIX)){
+    // 服务端 Agent：模型自主调用工具；事件流驱动 UI（工具卡 + 流式回答）
+    const isFree=model.startsWith(FREE_PREFIX);
     try{
       let payloadMessages=repairToolChain(trimHistory(CH,MAX_HISTORY));
-      if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
-      let oaiMessages=normalizeMessages(payloadMessages,{reasoning:thinkMode});
-      if(thinkMode){
-        oaiMessages=oaiMessages.map(m=>{
-          if(m.role!=='assistant')return m;
-          const patch={};
-          if(!('reasoning_content' in m))patch.reasoning_content='';
-          if(m.tool_calls && !('content' in m))patch.content='';
-          return Object.keys(patch).length?{...m,...patch}:m;
-        });
-      }else{
-        oaiMessages=oaiMessages.map(m=>{const{reasoning_content,...rest}=m;return rest;});
-      }
-
-      const res=await fetch('/api/external/chat',{
-        method:'POST',
-        headers:API_HEADERS,
-        body:JSON.stringify({provider_id:provider.id,model:oaiModel,messages:oaiMessages,temperature:modelParams.temperature,top_p:modelParams.topP}),
-        signal:abortController.signal
-      });
-      if(!res.ok)throw new Error(`HTTP ${res.status}`);
-      let streamDone=false;
-      for await(const data of streamNdjsonLines(res)){
-        const thinkToken=data?.message?.thinking||'';
-        if(thinkMode&&thinkToken){
-          if(!thinkEl)createThinkBlockLive();
-          thinkBuf+=thinkToken;thinkCharCount+=thinkToken.length;
-          if(thinkTextEl)thinkTextEl.textContent=thinkBuf;
+      if(!thinkMode)payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...rest}=m;return rest;});
+      const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP};
+      if(isOpenAI)body.provider_id=provider.id;
+      const res=await fetch('/papi/agent',{method:'POST',headers:API_HEADERS,body:JSON.stringify(body),signal:abortController.signal});
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const toolEls={}; let pendingEl=null;
+      const clearPending=()=>{if(pendingEl){try{pendingEl.remove();}catch(_){} pendingEl=null;}};
+      for await(const ev of streamNdjsonLines(res)){
+        if(ev.type==='status'){
+          if(!pendingEl){pendingEl=document.createElement('div');pendingEl.className='search-results-block';pendingEl.innerHTML='<div class="search-results-label">🤔 模型正在思考…</div>';aiBubble.insertBefore(pendingEl,liveBar);}
+        }else if(ev.type==='tool_call'){
+          clearPending();
+          const c=makeToolCard(ev.summary||ev.name);
+          toolEls[ev.id]={card:c.card,icon:c.icon,title:c.title,body:c.body,summary:ev.summary||ev.name};
+          aiBubble.insertBefore(c.card,liveBar);scrollIfNeeded();
+        }else if(ev.type==='tool_result'){
+          const t=toolEls[ev.id];
+          if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');t.body.textContent=ev.content||'';}
+          if(ev.cards&&ev.cards.length){const sb=buildSearchResultsBlock(ev.cards,(t?t.summary:'搜索'));aiBubble.insertBefore(sb,liveBar);}
           scrollIfNeeded();
+        }else if(ev.type==='answer_delta'){
+          clearPending();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
+        }else if(ev.type==='done'){
+          if(ev.new_messages&&ev.new_messages.length){for(const m of ev.new_messages)CH.push(m);saveToStorage();}
+        }else if(ev.type==='error'){
+          throw new Error(ev.message||'agent error');
         }
-        const token=data?.message?.content||'';
-        if(token){
-          contentTokenCount++;
-          if(thinkBuf&&!inThink){if(!answerHeaderEl)finishThink();mainBuf+=token;renderMain();}
-          else{rawBuf+=token;processRaw();}
-          scrollIfNeeded();
-        }
-        if(data.done){finalize(contentTokenCount,0);streamDone=true;break;}
       }
-      if(!streamDone)finalize(contentTokenCount,0);
+      clearPending();
+      finalize(contentTokenCount,0);
     }catch(e){
       try{cursor.remove();}catch(_){}
       try{liveBar.remove();}catch(_){}
-      if(e.name==='AbortError'){
-        stopped=true;finalize(contentTokenCount,0);
-      }else{
-        console.error('External API call error',e);
-        showBubbleError(aiBubble,'连接失败，请检查 API 地址和密钥是否正确');
-      }
-    }
-    abortController=null;
-    try{cursor.remove();}catch(_){}
-    return;
-  }
-
-  // ── Free server-side model path (DeepSeek via bridge) ──
-  if(model.startsWith(FREE_PREFIX)){
-    try{
-      let payloadMessages=normalizeMessages(repairToolChain(trimHistory(CH,MAX_HISTORY)));
-      if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
-      // Thinking mode: DeepSeek requires ALL assistant messages to have both
-      // reasoning_content and content (tool_call msgs from /free-llm/tool lack both).
-      if(thinkMode){
-        payloadMessages=payloadMessages.map(m=>{
-          if(m.role!=='assistant')return m;
-          const patch={};
-          if(!('reasoning_content' in m))patch.reasoning_content='';
-          if(m.tool_calls && !('content' in m))patch.content='';
-          return Object.keys(patch).length?{...m,...patch}:m;
-        });
-      }else{
-        payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
-      }
-      const res=await fetch('/papi/free-llm',{method:'POST',headers:API_HEADERS,
-        body:JSON.stringify({model:realModelName(model),messages:payloadMessages,stream:true,think:thinkMode,options:{temperature:modelParams.temperature,top_p:modelParams.topP}}),
-        signal:abortController.signal});
-      if(!res.ok){
-        const errData=await res.json().catch(()=>({}));
-        throw new Error(errData.detail||`HTTP ${res.status}`);
-      }
-      let streamDone=false;
-      for await(const data of streamNdjsonLines(res)){
-        const thinkToken=data?.message?.thinking||'';
-        if(thinkMode&&thinkToken){
-          if(!thinkEl)createThinkBlockLive();
-          thinkBuf+=thinkToken;thinkCharCount+=thinkToken.length;
-          if(thinkTextEl)thinkTextEl.textContent=thinkBuf;
-          scrollIfNeeded();
-        }
-        const token=data?.message?.content||'';
-        if(token){
-          contentTokenCount++;
-          if(thinkBuf&&!inThink){if(!answerHeaderEl)finishThink();mainBuf+=token;renderMain();}
-          else{rawBuf+=token;processRaw();}
-          scrollIfNeeded();
-        }
-        if(data.done){finalize(contentTokenCount,0);streamDone=true;break;}
-      }
-      if(!streamDone)finalize(contentTokenCount,0);
-    }catch(e){
-      try{cursor.remove();}catch(_){}
-      try{liveBar.remove();}catch(_){}
-      if(e.name==='AbortError'){
-        stopped=true;finalize(contentTokenCount,0);
-      }else{
-        console.error('Free-LLM callAPI error',e);
-        showBubbleError(aiBubble,'免费模型暂时不可用：'+escHtml(e.message));
-      }
+      if(e.name==='AbortError'){stopped=true;finalize(contentTokenCount,0);}
+      else{console.error('Agent call error',e);showBubbleError(aiBubble,'出错：'+escHtml(e.message));}
     }
     abortController=null;
     try{cursor.remove();}catch(_){}
@@ -2354,7 +2212,6 @@ async function callAPI(model){
     try{
       const geminiModel=realModelName(model);
       let payloadMessages=normalizeMessages(repairToolChain(trimHistory(CH,MAX_HISTORY)));
-      if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
       if(!thinkMode){
         payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
       }
@@ -2397,7 +2254,6 @@ async function callAPI(model){
     if(!thinkMode){
       payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
     }
-    if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
     const res=await fetch('/api/chat',{method:'POST',headers:API_HEADERS,
       body:JSON.stringify({model:realModelName(model),messages:payloadMessages,stream:true,think:thinkMode,options:{temperature:modelParams.temperature,top_p:modelParams.topP}}),
       signal:abortController.signal});
