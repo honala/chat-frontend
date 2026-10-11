@@ -1846,6 +1846,7 @@ function makeToolCard(summary){
 async function callAPI(model){
   // Capture session state at call time — survives session switches
   const CH=chatHistory, DL=displayLog, sid=activeSessionId;
+  let searchData=null;
   const aiBubble=addBubble('ai');aiBubble.classList.add('generating');
   const cursor=document.createElement('span');cursor.className='cursor';
   aiBubble.appendChild(cursor);
@@ -1974,7 +1975,7 @@ async function callAPI(model){
         }else if(ev.type==='tool_result'){
           const t=toolEls[ev.id];
           if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');t.body.textContent=ev.content||'';}
-          if(ev.cards&&ev.cards.length){const sb=buildSearchResultsBlock(ev.cards,(t?t.summary:'搜索'));aiBubble.insertBefore(sb,liveBar);}
+          if(ev.cards&&ev.cards.length){searchData={query:(t?t.summary:''),results:ev.cards};const sb=buildSearchResultsBlock(ev.cards,(t?t.summary:'搜索'));aiBubble.insertBefore(sb,liveBar);}
           scrollIfNeeded();
         }else if(ev.type==='answer_delta'){
           clearPending();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
