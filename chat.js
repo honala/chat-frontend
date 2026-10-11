@@ -1855,6 +1855,15 @@ function makeToolCard(summary){
   return {card,icon,title,body};
 }
 
+function ensureAgentProcStyle(){
+  if(document.getElementById('agent-proc-style'))return;
+  const st=document.createElement('style');st.id='agent-proc-style';
+  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}';
+  document.head.appendChild(st);
+}
+function shortSummary(s,max){s=String(s==null?'':s).replace(/\s+/g,' ').trim();max=max||30;return s.length>max?(s.slice(0,max)+'…'):s;}
+function toolVerb(name){return ({web_search:'搜索',read_url:'读取网页',weather:'查询天气',get_time:'获取时间',calculator:'计算',generate_image:'生成图片'})[name]||name||'处理';}
+
 async function callAPI(model){
   // Capture session state at call time — survives session switches
   const CH=chatHistory, DL=displayLog, sid=activeSessionId;
@@ -1975,62 +1984,67 @@ async function callAPI(model){
       agentId='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
       const res=await fetch('/papi/agent',{method:'POST',headers:Object.assign({},API_HEADERS,{'X-Agent-Id':agentId}),body:JSON.stringify(body),signal:abortController.signal});
       if(!res.ok)throw new Error('HTTP '+res.status);
-      const toolEls={}; let pendingEl=null;
-      let procWrap=null, procBody=null; const stepGroups={}; let curStep=0;
+      const toolEls={}; let procEl=null,procLine=null,procLabel=null,procSpin=null,procCaret=null,procBody=null;
+      const stepGroups={}; let curStep=0;
       let answerTokens=0,genMs=0,gotDone=false,finishReason='';
-      const clearPending=()=>{if(pendingEl){try{pendingEl.remove();}catch(_){} pendingEl=null;}};
+      ensureAgentProcStyle();
       const ensureProc=()=>{
-        if(procWrap)return;
-        procWrap=document.createElement('div');procWrap.className='search-results-block';
-        const ph=document.createElement('div');ph.className='search-results-label';ph.style.cursor='pointer';
-        ph.innerHTML='<span class="toggle-icon">▾</span> 🔧 处理过程';
-        procBody=document.createElement('div');
-        procWrap.appendChild(ph);procWrap.appendChild(procBody);
-        ph.addEventListener('click',()=>{const c=procBody.style.display==='none';procBody.style.display=c?'':'none';const ic=ph.querySelector('.toggle-icon');if(ic)ic.textContent=c?'▾':'▸';});
-        aiBubble.insertBefore(procWrap,liveBar);
+        if(procEl)return;
+        procEl=document.createElement('div');procEl.className='agent-proc';
+        procLine=document.createElement('div');procLine.className='agent-proc-line';
+        procSpin=document.createElement('span');procSpin.className='agent-spin';
+        procLabel=document.createElement('span');procLabel.className='agent-proc-label';procLabel.textContent='准备中…';
+        procCaret=document.createElement('span');procCaret.className='agent-proc-caret';procCaret.textContent='▸';
+        procLine.appendChild(procSpin);procLine.appendChild(procLabel);procLine.appendChild(procCaret);
+        procBody=document.createElement('div');procBody.className='agent-proc-body';
+        procEl.appendChild(procLine);procEl.appendChild(procBody);
+        procLine.addEventListener('click',()=>{const open=procBody.classList.contains('open');procBody.classList.toggle('open',!open);procCaret.textContent=open?'▸':'▾';});
+        aiBubble.insertBefore(procEl,liveBar);
       };
+      const setLine=(t,spin)=>{ensureProc();procLabel.textContent=t;procSpin.style.display=(spin===false)?'none':'';};
       const getStep=n=>{
         if(stepGroups[n])return stepGroups[n];
-        const el=document.createElement('div');el.style.cssText='margin:5px 0';
-        const hh=document.createElement('div');hh.style.cssText='font-size:12px;opacity:0.7;cursor:pointer';hh.textContent='步骤 '+(n+1);
-        const bd=document.createElement('div');bd.style.cssText='padding-left:10px;border-left:2px solid rgba(128,128,128,0.25);margin-top:2px';
+        const el=document.createElement('div');el.className='agent-step';
+        const hh=document.createElement('div');hh.className='agent-step-h';hh.textContent='步骤 '+(n+1);
+        const bd=document.createElement('div');bd.className='agent-step-body open';
         el.appendChild(hh);el.appendChild(bd);
-        hh.addEventListener('click',()=>{bd.style.display=bd.style.display==='none'?'':'none';});
+        hh.addEventListener('click',()=>bd.classList.toggle('open'));
         procBody.appendChild(el);
         stepGroups[n]={body:bd,think:null};
-        for(const k in stepGroups){if(String(k)!==String(n))stepGroups[k].body.style.display='none';}
+        for(const k in stepGroups){if(String(k)!==String(n))stepGroups[k].body.classList.remove('open');}
         return stepGroups[n];
       };
       for await(const ev of streamNdjsonLines(res)){
         if(ev.type==='status'){
-          curStep=(ev.step||0);
-          if(!pendingEl){pendingEl=document.createElement('div');pendingEl.className='search-results-block';pendingEl.innerHTML='<div class="search-results-label">🤔 模型正在判断…</div>';aiBubble.insertBefore(pendingEl,liveBar);}
+          curStep=(ev.step||0);setLine('模型正在判断…',true);
         }else if(ev.type==='thinking'){
-          clearPending();
           if(thinkMode){
-            ensureProc();const g=getStep(ev.step!=null?ev.step:curStep);
-            if(!g.think){g.think=document.createElement('div');g.think.style.cssText='white-space:pre-wrap;font-size:12px;opacity:0.75;margin:2px 0';g.body.appendChild(g.think);}
+            setLine('正在思考…',true);
+            const g=getStep(ev.step!=null?ev.step:curStep);
+            if(!g.think){g.think=document.createElement('div');g.think.className='agent-think';g.body.appendChild(g.think);}
             g.think.textContent+=(ev.text||'');thinkCharCount+=(ev.text||'').length;scrollIfNeeded();
           }
         }else if(ev.type==='tool_call'){
-          clearPending();
-          ensureProc();const g=getStep(ev.step!=null?ev.step:curStep);
+          setLine('正在'+shortSummary(ev.summary,34)+' …',true);
+          const g=getStep(ev.step!=null?ev.step:curStep);
           const c=makeToolCard(ev.summary||ev.name);
           toolEls[ev.id]={icon:c.icon,title:c.title,body:c.body,summary:ev.summary||ev.name};
           g.body.appendChild(c.card);scrollIfNeeded();
         }else if(ev.type==='tool_result'){
           const t=toolEls[ev.id];
           if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');}
+          setLine((ev.ok?'✓ 已完成：':'✗ 失败：')+shortSummary((t&&t.summary)||ev.name,36),false);
           if(t&&ev.cards&&ev.cards.length){
             t.body.innerHTML='';
             const list=document.createElement('div');list.className='search-results-list';
             ev.cards.forEach(r=>{const it=document.createElement('div');it.className='search-result-item';const u=/^https?:\/\//i.test(r.url)?r.url:'#';it.innerHTML='<a href="'+escHtml(u)+'" target="_blank" rel="noopener noreferrer">'+escHtml(r.title||r.url)+'</a>';list.appendChild(it);});
             t.body.appendChild(list);searchData={query:(t.summary||''),results:ev.cards};
           }else if(t){t.body.textContent=ev.content||'';}
-          if(t&&ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(im);t.body.style.display='block';}
+          if(t&&ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(im);}
           scrollIfNeeded();
         }else if(ev.type==='answer_delta'){
-          clearPending();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
+          setLine('✓ 处理完成，正在作答…',true);
+          contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
         }else if(ev.type==='done'){
           gotDone=true;
           if(ev.usage&&ev.usage.completion_tokens)answerTokens=ev.usage.completion_tokens;
@@ -2041,8 +2055,11 @@ async function callAPI(model){
           throw new Error(ev.message||'agent error');
         }
       }
-      clearPending();
-      if(procWrap){procBody.style.display='none';const ic=procWrap.querySelector('.toggle-icon');if(ic)ic.textContent='▸';}
+      if(procEl){
+        procSpin.style.display='none';
+        procLabel.textContent='✓ 完成 · '+Object.keys(stepGroups).length+' 步'+(genMs>0?(' · '+(genMs/1000).toFixed(1)+'s'):'');
+        procBody.classList.remove('open');procCaret.textContent='▸';
+      }
       if(!gotDone){
         const w=document.createElement('div');w.className='search-results-block collapsed';
         w.innerHTML='<div class="search-results-label">⚠ 连接中断，回答可能不完整（可点该条重新生成）</div>';
