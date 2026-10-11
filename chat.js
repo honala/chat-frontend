@@ -1858,7 +1858,7 @@ function makeToolCard(summary){
 function ensureAgentProcStyle(){
   if(document.getElementById('agent-proc-style'))return;
   const st=document.createElement('style');st.id='agent-proc-style';
-  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}';
+  st.textContent='.agent-proc{font-size:13px;margin:6px 0}.agent-proc-line{display:flex;align-items:center;gap:7px;cursor:pointer;line-height:1.7}.agent-proc-label{flex:1;opacity:.9}.agent-proc-caret{opacity:.5;font-size:11px}.agent-spin{width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:agentspin .8s linear infinite;opacity:.6;flex:0 0 auto}@keyframes agentspin{to{transform:rotate(360deg)}}.agent-proc-body{display:none;margin:4px 0 0 19px;padding-left:10px;border-left:2px solid rgba(128,128,128,.25)}.agent-proc-body.open{display:block}.agent-step{margin:5px 0}.agent-step-h{font-size:12px;opacity:.6;cursor:pointer}.agent-step-body{display:none;padding-left:8px;margin-top:2px}.agent-step-body.open{display:block}.agent-think{white-space:pre-wrap;font-size:12px;opacity:.7;margin:2px 0}.agent-proc-label{position:relative;overflow:hidden}.agent-proc-text{display:inline-block;animation:agentrollin .28s cubic-bezier(.2,.7,.2,1)}.agent-proc-ghost{position:absolute;left:0;top:0;right:0;pointer-events:none;animation:agentrollout .26s ease forwards}@keyframes agentrollin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}@keyframes agentrollout{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-8px)}}@media (prefers-reduced-motion:reduce){.agent-proc-ghost{display:none}.agent-proc-text{animation:none}}';
   document.head.appendChild(st);
 }
 function shortSummary(s,max){s=String(s==null?'':s).replace(/\s+/g,' ').trim();max=max||30;return s.length>max?(s.slice(0,max)+'…'):s;}
@@ -1993,7 +1993,8 @@ async function callAPI(model){
         procEl=document.createElement('div');procEl.className='agent-proc';
         procLine=document.createElement('div');procLine.className='agent-proc-line';
         procSpin=document.createElement('span');procSpin.className='agent-spin';
-        procLabel=document.createElement('span');procLabel.className='agent-proc-label';procLabel.textContent='准备中…';
+        procLabel=document.createElement('span');procLabel.className='agent-proc-label';
+        const _t0=document.createElement('span');_t0.className='agent-proc-text';_t0.textContent='准备中…';procLabel.appendChild(_t0);
         procCaret=document.createElement('span');procCaret.className='agent-proc-caret';procCaret.textContent='▸';
         procLine.appendChild(procSpin);procLine.appendChild(procLabel);procLine.appendChild(procCaret);
         procBody=document.createElement('div');procBody.className='agent-proc-body';
@@ -2001,7 +2002,17 @@ async function callAPI(model){
         procLine.addEventListener('click',()=>{const open=procBody.classList.contains('open');procBody.classList.toggle('open',!open);procCaret.textContent=open?'▸':'▾';});
         aiBubble.insertBefore(procEl,liveBar);
       };
-      const setLine=(t,spin)=>{ensureProc();procLabel.textContent=t;procSpin.style.display=(spin===false)?'none':'';};
+      const setLine=(t,spin)=>{
+        ensureProc();procSpin.style.display=(spin===false)?'none':'';
+        const cur=procLabel.querySelector('.agent-proc-text:not(.agent-proc-ghost)');
+        if(cur&&cur.textContent===t)return;
+        if(cur){
+          const g=document.createElement('span');g.className='agent-proc-text agent-proc-ghost';g.textContent=cur.textContent;
+          procLabel.appendChild(g);g.addEventListener('animationend',()=>{try{g.remove();}catch(_){}});
+          cur.remove();
+        }
+        const tx=document.createElement('span');tx.className='agent-proc-text';tx.textContent=t;procLabel.appendChild(tx);
+      };
       const getStep=n=>{
         if(stepGroups[n])return stepGroups[n];
         const el=document.createElement('div');el.className='agent-step';
