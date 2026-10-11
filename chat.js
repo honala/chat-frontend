@@ -470,24 +470,6 @@ async function* streamNdjsonLines(res){
   }
 }
 
-function injectCurrentDate(messages){
-  // 彻底版：动态日期只贴到「最后一条消息」的末尾，绝不改动开头 system 与既有历史，
-  // 保证 prompt 前缀逐字稳定 —— 缓存命中率最大化。
-  const now=new Date();
-  const today=now.toLocaleDateString('zh-CN',{year:'numeric',month:'long',day:'numeric'});
-  const dateTag=`\n\n[系统提示：今天是${today}。涉及"最近/最新/近期"等时间相关内容时，请以此为基准构建搜索关键词。]`;
-  const out=messages.slice();
-  if(!out.length)return out;
-  const last=out[out.length-1];
-  if(Array.isArray(last.content)){
-    out[out.length-1]={...last,content:[...last.content,{type:'text',text:dateTag}]};
-  }else{
-    const base=(typeof last.content==='string')?last.content:'';
-    out[out.length-1]={...last,content:`${base}${dateTag}`};
-  }
-  return out;
-}
-
 // ── Theme toggle ───────────────────────────
 let isDark = localStorage.getItem('theme') === 'dark';
 function applyTheme(){
@@ -1857,7 +1839,12 @@ async function sendMessage(){
     msgContent=(msgContent+docBlock).trim();
   }
 
-  const userMsg={role:'user',content:msgContent||''};
+  // 每条用户消息在“诞生时”盖一次时间戳并冻结（不再在发送前动态注入）。
+  // 老消息的戳永不改变 -> prompt 前缀逐字稳定 -> 缓存命中；且模型能知道每轮对话分别发生在几点。
+  const _t=new Date();
+  const _pad=n=>String(n).padStart(2,'0');
+  const _stamp=`[${_t.getFullYear()}-${_pad(_t.getMonth()+1)}-${_pad(_t.getDate())} ${_pad(_t.getHours())}:${_pad(_t.getMinutes())}] `;
+  const userMsg={role:'user',content:_stamp+(msgContent||'')};
   if(images.length)userMsg.images=images.map(i=>i.base64);
   chatHistory.push(userMsg);
   const logText=text||(docs.length?docs.map(f=>f.name).join(', '):'[图片]');
@@ -1978,7 +1965,7 @@ async function performToolCallingSearch(model, abortSignal, history=chatHistory)
   const isFree=model.startsWith(FREE_PREFIX);
 
   // Build messages without search context (model decides what to call)
-  const msgs=injectCurrentDate(trimHistory(history,MAX_HISTORY));
+  const msgs=trimHistory(history,MAX_HISTORY);
   const tools=[SEARCH_TOOL_DEF];
 
   try{
@@ -2240,7 +2227,7 @@ async function callAPI(model){
     // ── External API via backend proxy (key never leaves server) ──
     const oaiModel=realModelName(model);
     try{
-      let payloadMessages=repairToolChain(injectCurrentDate(trimHistory(CH,MAX_HISTORY)));
+      let payloadMessages=repairToolChain(trimHistory(CH,MAX_HISTORY));
       if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
       let oaiMessages=normalizeMessages(payloadMessages,{reasoning:thinkMode});
       if(thinkMode){
@@ -2299,7 +2286,7 @@ async function callAPI(model){
   // ── Free server-side model path (DeepSeek via bridge) ──
   if(model.startsWith(FREE_PREFIX)){
     try{
-      let payloadMessages=normalizeMessages(repairToolChain(injectCurrentDate(trimHistory(CH,MAX_HISTORY))));
+      let payloadMessages=normalizeMessages(repairToolChain(trimHistory(CH,MAX_HISTORY)));
       if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
       // Thinking mode: DeepSeek requires ALL assistant messages to have both
       // reasoning_content and content (tool_call msgs from /free-llm/tool lack both).
@@ -2359,7 +2346,7 @@ async function callAPI(model){
   if(model.startsWith(GEMINI_PREFIX)){
     try{
       const geminiModel=realModelName(model);
-      let payloadMessages=normalizeMessages(repairToolChain(injectCurrentDate(trimHistory(CH,MAX_HISTORY))));
+      let payloadMessages=normalizeMessages(repairToolChain(trimHistory(CH,MAX_HISTORY)));
       if(!toolCallingMode)payloadMessages=injectSearchContext(payloadMessages,searchData);
       if(!thinkMode){
         payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
@@ -2399,7 +2386,7 @@ async function callAPI(model){
 
   // ── Ollama path ──
   try{
-    let payloadMessages=repairToolChain(injectCurrentDate(trimHistory(CH,MAX_HISTORY)));
+    let payloadMessages=repairToolChain(trimHistory(CH,MAX_HISTORY));
     if(!thinkMode){
       payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
     }
