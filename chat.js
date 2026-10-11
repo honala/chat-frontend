@@ -1975,26 +1975,62 @@ async function callAPI(model){
       agentId='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
       const res=await fetch('/papi/agent',{method:'POST',headers:Object.assign({},API_HEADERS,{'X-Agent-Id':agentId}),body:JSON.stringify(body),signal:abortController.signal});
       if(!res.ok)throw new Error('HTTP '+res.status);
-      const toolEls={}; let pendingEl=null; let answerTokens=0,genMs=0,gotDone=false,finishReason='';
+      const toolEls={}; let pendingEl=null;
+      let procWrap=null, procBody=null; const stepGroups={}; let curStep=0;
+      let answerTokens=0,genMs=0,gotDone=false,finishReason='';
       const clearPending=()=>{if(pendingEl){try{pendingEl.remove();}catch(_){} pendingEl=null;}};
+      const ensureProc=()=>{
+        if(procWrap)return;
+        procWrap=document.createElement('div');procWrap.className='search-results-block';
+        const ph=document.createElement('div');ph.className='search-results-label';ph.style.cursor='pointer';
+        ph.innerHTML='<span class="toggle-icon">▾</span> 🔧 处理过程';
+        procBody=document.createElement('div');
+        procWrap.appendChild(ph);procWrap.appendChild(procBody);
+        ph.addEventListener('click',()=>{const c=procBody.style.display==='none';procBody.style.display=c?'':'none';const ic=ph.querySelector('.toggle-icon');if(ic)ic.textContent=c?'▾':'▸';});
+        aiBubble.insertBefore(procWrap,liveBar);
+      };
+      const getStep=n=>{
+        if(stepGroups[n])return stepGroups[n];
+        const el=document.createElement('div');el.style.cssText='margin:5px 0';
+        const hh=document.createElement('div');hh.style.cssText='font-size:12px;opacity:0.7;cursor:pointer';hh.textContent='步骤 '+(n+1);
+        const bd=document.createElement('div');bd.style.cssText='padding-left:10px;border-left:2px solid rgba(128,128,128,0.25);margin-top:2px';
+        el.appendChild(hh);el.appendChild(bd);
+        hh.addEventListener('click',()=>{bd.style.display=bd.style.display==='none'?'':'none';});
+        procBody.appendChild(el);
+        stepGroups[n]={body:bd,think:null};
+        for(const k in stepGroups){if(String(k)!==String(n))stepGroups[k].body.style.display='none';}
+        return stepGroups[n];
+      };
       for await(const ev of streamNdjsonLines(res)){
         if(ev.type==='status'){
-          if(!pendingEl){pendingEl=document.createElement('div');pendingEl.className='search-results-block';pendingEl.innerHTML='<div class="search-results-label">🤔 模型正在思考…</div>';aiBubble.insertBefore(pendingEl,liveBar);}
+          curStep=(ev.step||0);
+          if(!pendingEl){pendingEl=document.createElement('div');pendingEl.className='search-results-block';pendingEl.innerHTML='<div class="search-results-label">🤔 模型正在判断…</div>';aiBubble.insertBefore(pendingEl,liveBar);}
+        }else if(ev.type==='thinking'){
+          clearPending();
+          if(thinkMode){
+            ensureProc();const g=getStep(ev.step!=null?ev.step:curStep);
+            if(!g.think){g.think=document.createElement('div');g.think.style.cssText='white-space:pre-wrap;font-size:12px;opacity:0.75;margin:2px 0';g.body.appendChild(g.think);}
+            g.think.textContent+=(ev.text||'');thinkCharCount+=(ev.text||'').length;scrollIfNeeded();
+          }
         }else if(ev.type==='tool_call'){
           clearPending();
+          ensureProc();const g=getStep(ev.step!=null?ev.step:curStep);
           const c=makeToolCard(ev.summary||ev.name);
-          toolEls[ev.id]={card:c.card,icon:c.icon,title:c.title,body:c.body,summary:ev.summary||ev.name};
-          aiBubble.insertBefore(c.card,liveBar);scrollIfNeeded();
+          toolEls[ev.id]={icon:c.icon,title:c.title,body:c.body,summary:ev.summary||ev.name};
+          g.body.appendChild(c.card);scrollIfNeeded();
         }else if(ev.type==='tool_result'){
           const t=toolEls[ev.id];
-          if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');t.body.textContent=ev.content||'';}
-          if(ev.cards&&ev.cards.length){searchData={query:(t?t.summary:''),results:ev.cards};const sb=buildSearchResultsBlock(ev.cards,(t?t.summary:'搜索'));aiBubble.insertBefore(sb,liveBar);}
-          if(ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';aiBubble.insertBefore(im,liveBar);}
+          if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');}
+          if(t&&ev.cards&&ev.cards.length){
+            t.body.innerHTML='';
+            const list=document.createElement('div');list.className='search-results-list';
+            ev.cards.forEach(r=>{const it=document.createElement('div');it.className='search-result-item';const u=/^https?:\/\//i.test(r.url)?r.url:'#';it.innerHTML='<a href="'+escHtml(u)+'" target="_blank" rel="noopener noreferrer">'+escHtml(r.title||r.url)+'</a>';list.appendChild(it);});
+            t.body.appendChild(list);searchData={query:(t.summary||''),results:ev.cards};
+          }else if(t){t.body.textContent=ev.content||'';}
+          if(t&&ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(im);t.body.style.display='block';}
           scrollIfNeeded();
-        }else if(ev.type==='thinking'){
-          if(thinkMode){if(!thinkEl)createThinkBlockLive();thinkBuf+=ev.text;thinkCharCount+=ev.text.length;if(thinkTextEl)thinkTextEl.textContent=thinkBuf;scrollIfNeeded();}
         }else if(ev.type==='answer_delta'){
-          clearPending();if(thinkEl&&!answerHeaderEl)finishThink();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
+          clearPending();contentTokenCount++;mainBuf+=ev.text;renderMain();scrollIfNeeded();
         }else if(ev.type==='done'){
           gotDone=true;
           if(ev.usage&&ev.usage.completion_tokens)answerTokens=ev.usage.completion_tokens;
@@ -2006,6 +2042,7 @@ async function callAPI(model){
         }
       }
       clearPending();
+      if(procWrap){procBody.style.display='none';const ic=procWrap.querySelector('.toggle-icon');if(ic)ic.textContent='▸';}
       if(!gotDone){
         const w=document.createElement('div');w.className='search-results-block collapsed';
         w.innerHTML='<div class="search-results-label">⚠ 连接中断，回答可能不完整（可点该条重新生成）</div>';
