@@ -2041,6 +2041,7 @@ async function callAPI(model){
             t.body.appendChild(list);searchData={query:(t.summary||''),results:ev.cards};
           }else if(t){t.body.textContent=ev.content||'';}
           if(t&&ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(im);}
+          if(t&&ev.video){const vd=document.createElement('video');vd.src=ev.video;vd.controls=true;vd.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';t.body.appendChild(vd);}
           scrollIfNeeded();
         }else if(ev.type==='answer_delta'){
           setLine('✓ 处理完成，正在作答…',true);
