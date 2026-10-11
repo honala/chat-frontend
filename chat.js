@@ -1846,14 +1846,14 @@ function makeToolCard(summary){
 async function callAPI(model){
   // Capture session state at call time — survives session switches
   const CH=chatHistory, DL=displayLog, sid=activeSessionId;
-  let searchData=null;
+  let searchData=null; let agentId='';
   const aiBubble=addBubble('ai');aiBubble.classList.add('generating');
   const cursor=document.createElement('span');cursor.className='cursor';
   aiBubble.appendChild(cursor);
 
   const liveBar=document.createElement('div');liveBar.className='reply-bar';liveBar.style.marginTop='8px';
   const stopBtn=document.createElement('button');stopBtn.className='stop-btn';stopBtn.innerHTML='<i class="ti ti-player-stop"></i> 停止生成';
-  stopBtn.addEventListener('click',()=>{if(abortController)abortController.abort();});
+  stopBtn.addEventListener('click',()=>{if(agentId){try{fetch('/papi/agent/abort',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:agentId})});}catch(_){}} if(abortController)abortController.abort();});
   liveBar.appendChild(stopBtn);
   aiBubble.appendChild(liveBar);
 
@@ -1960,7 +1960,8 @@ async function callAPI(model){
       if(!thinkMode)payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...rest}=m;return rest;});
       const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP,think:thinkMode};
       if(isOpenAI)body.provider_id=provider.id;
-      const res=await fetch('/papi/agent',{method:'POST',headers:API_HEADERS,body:JSON.stringify(body),signal:abortController.signal});
+      agentId='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+      const res=await fetch('/papi/agent',{method:'POST',headers:Object.assign({},API_HEADERS,{'X-Agent-Id':agentId}),body:JSON.stringify(body),signal:abortController.signal});
       if(!res.ok)throw new Error('HTTP '+res.status);
       const toolEls={}; let pendingEl=null; let answerTokens=0,genMs=0,gotDone=false,finishReason='';
       const clearPending=()=>{if(pendingEl){try{pendingEl.remove();}catch(_){} pendingEl=null;}};
@@ -1976,6 +1977,7 @@ async function callAPI(model){
           const t=toolEls[ev.id];
           if(t){t.icon.textContent=ev.ok?'✅':'❌';t.title.textContent=(ev.ok?'✅ ':'❌ ')+(t.summary||'');t.body.textContent=ev.content||'';}
           if(ev.cards&&ev.cards.length){searchData={query:(t?t.summary:''),results:ev.cards};const sb=buildSearchResultsBlock(ev.cards,(t?t.summary:'搜索'));aiBubble.insertBefore(sb,liveBar);}
+          if(ev.image){const im=document.createElement('img');im.src=ev.image;im.style.cssText='max-width:100%;border-radius:8px;margin-top:6px';aiBubble.insertBefore(im,liveBar);}
           scrollIfNeeded();
         }else if(ev.type==='thinking'){
           if(thinkMode){if(!thinkEl)createThinkBlockLive();thinkBuf+=ev.text;thinkCharCount+=ev.text.length;if(thinkTextEl)thinkTextEl.textContent=thinkBuf;scrollIfNeeded();}
