@@ -73,10 +73,22 @@ const PURIFY_CONFIG={
                'onchange','onsubmit','onkeydown','onkeyup','onkeypress',
                'ondblclick','oncontextmenu','onpointerdown','ontouchstart']
 };
+function fixCJKEmphasis(md){
+  // 修复 "**"/"*" 紧贴标点（尤其中文标点）时 marked 强调失效的问题：
+  // 在分隔符内侧插入零宽空格 U+200B（不可见），恢复左右成对判定。跳过 ``` 围栏与行内 `code`。
+  const parts=md.split(/(```[\s\S]*?```|`[^`\n]*`)/g);
+  for(let i=0;i<parts.length;i++){
+    if(i%2)continue;
+    parts[i]=parts[i]
+      .replace(/(\*\*)([\u3000-\u303f\uff00-\uffef"'\u201c\u201d\u2018\u2019\u300c\u300d\u300e\u300f()\uff08\uff09\[\]\u3010\u3011<>\u300a\u300b\uff0c\u3002\u3001\uff1b\uff1a\uff1f\uff01\u2026\u2014\uff5e\u00b7\\\/])/g,'$1\u200b$2')
+      .replace(/([\u3000-\u303f\uff00-\uffef"'\u201c\u201d\u2018\u2019\u300c\u300d\u300e\u300f()\uff08\uff09\[\]\u3010\u3011<>\u300a\u300b\uff0c\u3002\u3001\uff1b\uff1a\uff1f\uff01\u2026\u2014\uff5e\u00b7\\\/])(\*\*)/g,'$1\u200b$2');
+  }
+  return parts.join('');
+}
 function mdToHtml(raw){
   if(!window.marked)return '<pre>'+escHtml(raw)+'</pre>';
   const{src,mathMap}=protectMath(raw);
-  const rawHtml=restoreMath(marked.parse(src),mathMap);
+  const rawHtml=restoreMath(marked.parse(fixCJKEmphasis(src)),mathMap);
   if(!window.DOMPurify)return '<pre>'+escHtml(raw)+'</pre>';  // CDN failed: safe fallback
   return DOMPurify.sanitize(rawHtml,PURIFY_CONFIG);
 }
