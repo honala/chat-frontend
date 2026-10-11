@@ -1927,6 +1927,10 @@ const SEARCH_TOOL_DEF={
     parameters:{type:'object',properties:{query:{type:'string',description:'搜索引擎查询词，使用用户消息的语言'}},required:['query']}
   }
 };
+const READ_URL_TOOL_DEF={type:'function',function:{name:'read_url',description:'抓取指定网页的正文全文。当搜索结果只有摘要、需要网页正文或更多细节时使用。',parameters:{type:'object',properties:{url:{type:'string',description:'要读取的完整网页地址（http/https）'}},required:['url']}}};
+const WEATHER_TOOL_DEF={type:'function',function:{name:'weather',description:'查询某地当前天气与未来三天预报（结构化数据，比联网搜索更准）。',parameters:{type:'object',properties:{location:{type:'string',description:'城市或地点名称，如 北京、Shanghai'}},required:['location']}}};
+const GET_TIME_TOOL_DEF={type:'function',function:{name:'get_time',description:'获取当前日期与时间。',parameters:{type:'object',properties:{}}}};
+const CALC_TOOL_DEF={type:'function',function:{name:'calculator',description:'进行精确数学计算（加减乘除、幂^、括号）。',parameters:{type:'object',properties:{expression:{type:'string',description:'数学表达式，如 (12.5*3+7)/2'}},required:['expression']}}};
 function parseToolArgs(args){
   // Ollama returns parsed objects, OpenAI returns JSON strings
   if(!args)return{};
@@ -1934,31 +1938,73 @@ function parseToolArgs(args){
   try{return JSON.parse(args);}catch(e){return{};}
 }
 
+async function executeReadUrl(url){
+  try{
+    const res=await fetch('/papi/read-url',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    if(!res.ok)return null;
+    const d=await res.json();
+    return (d&&d.text)?d:null;
+  }catch(e){console.warn('read_url failed:',e);return null;}
+}
+async function executeWeather(location){
+  try{
+    const res=await fetch('/papi/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location})});
+    if(!res.ok)return null;
+    const d=await res.json();
+    return (d&&d.current)?d:null;
+  }catch(e){console.warn('weather failed:',e);return null;}
+}
+function safeCalc(expr){
+  try{
+    if(!expr||!/^[0-9+\-*/(). %^eE]+$/.test(expr))return null;
+    const val=Function('"use strict";return ('+expr.replace(/\^/g,'**')+')')();
+    return (typeof val==='number'&&isFinite(val))?val:null;
+  }catch(e){return null;}
+}
 async function fulfillToolCalls(toolCalls){
-  // A+B：把模型返回的「全部」tool_call 都执行，并为「每一个 id」生成一条对应 tool 回复；
-  // 执行不了的（非 web_search / 空 query / 搜索无结果）也补一条说明，
-  // 保证「声明数 == 回复数」，从根上消除 "insufficient tool messages" 报错。
+  // 执行模型返回的「全部」tool_call，并为「每一个 id」生成一条对应 tool 回复（声明数==回复数）。
   const calls=toolCalls.map(tc=>({...tc,id:tc.id||('call_'+Math.random().toString(36).slice(2,10))}));
-  const toolMsgs=[]; let searchData=null; let toolQuery='';
+  const toolMsgs=[]; const searchBlocks=[]; const toolNotes=[];
   for(const tc of calls){
+    const name=tc.function?.name||'';
+    const args=parseToolArgs(tc.function?.arguments);
     let content='（工具不可用，无结果）';
-    if(tc.function?.name==='web_search'){
-      const args=parseToolArgs(tc.function.arguments);
-      const query=args.query||'';
-      if(query){
-        const sd=await executeToolSearch(query);
-        if(sd&&sd.results&&sd.results.length){
-          if(!searchData){searchData=sd;toolQuery=query;}
-          content=buildSearchContext(sd.results,query);
-        }else{content='（搜索无结果）';}
+    if(name==='web_search'){
+      const q=String(args.query||'').trim();
+      if(q){
+        const sd=await executeToolSearch(q);
+        if(sd&&sd.results&&sd.results.length){content=buildSearchContext(sd.results,q);searchBlocks.push({query:q,results:sd.results});}
+        else{content='（搜索无结果）';}
       }else{content='（搜索关键词为空，未执行）';}
+      toolNotes.push('🔍 联网搜索'+(q?('：'+q):''));
+    }else if(name==='read_url'){
+      const url=String(args.url||'').trim();
+      const d=url?await executeReadUrl(url):null;
+      if(d){content='[网页: '+(d.title||url)+']\n'+d.text;toolNotes.push('🌐 读取网页：'+(d.title||url));}
+      else{content='（网页读取失败）';}
+    }else if(name==='weather'){
+      const loc=String(args.location||'').trim();
+      const d=loc?await executeWeather(loc):null;
+      if(d){
+        const c=d.current,u=d.current_units||{},daily=d.daily||{};
+        let t='[天气: '+d.location+']\n当前：'+c.temperature_2m+u.temperature_2m+'（体感 '+c.apparent_temperature+u.apparent_temperature+'），湿度 '+c.relative_humidity_2m+u.relative_humidity_2m+'，风速 '+c.wind_speed_10m+u.wind_speed_10m;
+        if(daily.time){t+='\n未来几天：';for(let i=0;i<daily.time.length;i++){t+='\n'+daily.time[i]+' '+daily.temperature_2m_min[i]+'~'+daily.temperature_2m_max[i]+'℃ 降水概率'+(daily.precipitation_probability_max?daily.precipitation_probability_max[i]:'-')+'%';}}
+        content=t;toolNotes.push('🌦 天气：'+d.location);
+      }else{content='（天气查询失败）';}
+    }else if(name==='get_time'){
+      const n=new Date(),pad=x=>String(x).padStart(2,'0');
+      content='当前时间：'+n.getFullYear()+'-'+pad(n.getMonth()+1)+'-'+pad(n.getDate())+' '+pad(n.getHours())+':'+pad(n.getMinutes())+'（'+Intl.DateTimeFormat().resolvedOptions().timeZone+'）';
+      toolNotes.push('🕐 获取时间');
+    }else if(name==='calculator'){
+      const ex=String(args.expression||'').trim();
+      const v=safeCalc(ex);
+      content=(v===null)?'（计算失败）':(ex+' = '+v);
+      toolNotes.push('🔢 计算：'+ex);
     }
     toolMsgs.push({role:'tool',tool_call_id:tc.id,content});
   }
-  return {calls,toolMsgs,searchData,toolQuery};
+  return {calls,toolMsgs,searchBlocks,toolNotes};
 }
-
-
 async function callToolOnce(model,provider,isOpenAI,isFree,messages,tools,abortSignal){
   // 单次“模型决策”调用：返回 assistant 消息（可能带 tool_calls），供多轮循环使用。
   try{
@@ -1993,10 +2039,10 @@ async function runToolLoop(model,abortSignal,history,maxSteps=4){
   const provider=providerForModel(model);
   const isOpenAI=!!provider;
   const isFree=model.startsWith(FREE_PREFIX);
-  const tools=[SEARCH_TOOL_DEF];
+  const tools=[SEARCH_TOOL_DEF,READ_URL_TOOL_DEF,WEATHER_TOOL_DEF,GET_TIME_TOOL_DEF,CALC_TOOL_DEF];
   const base=trimHistory(history,MAX_HISTORY);
   const work=base.slice();
-  const searchBlocks=[];
+  const searchBlocks=[]; const toolNotes=[];
   let calledAny=false;
   for(let step=0;step<maxSteps;step++){
     const msg=await callToolOnce(model,provider,isOpenAI,isFree,work,tools,abortSignal);
@@ -2004,13 +2050,14 @@ async function runToolLoop(model,abortSignal,history,maxSteps=4){
     if(!msg.tool_calls||!msg.tool_calls.length)break; // 模型准备作答，结束循环
     calledAny=true;
     const r=await fulfillToolCalls(msg.tool_calls);
-    if(r.searchData)searchBlocks.push({query:r.toolQuery,results:r.searchData.results});
+    for(const sb of r.searchBlocks)searchBlocks.push(sb);
+    for(const tn of (r.toolNotes||[]))toolNotes.push(tn);
     const asst={role:'assistant',tool_calls:r.calls};
     if(msg.reasoning_content)asst.reasoning_content=msg.reasoning_content;
     work.push(asst);
     for(const tm of r.toolMsgs)work.push(tm);
   }
-  return {newMsgs:work.slice(base.length),searchBlocks,calledAny};
+  return {newMsgs:work.slice(base.length),searchBlocks,toolNotes,calledAny};
 }
 
 async function executeToolSearch(query){
@@ -2147,6 +2194,12 @@ async function callAPI(model){
       for(const m of loopRes.newMsgs)CH.push(m);
       saveToStorage();
     }
+    const _notes=(loopRes&&loopRes.toolNotes)||[];
+    if(_notes.length){
+      const tn=document.createElement('div');tn.className='search-results-block collapsed';
+      tn.innerHTML='<div class="search-results-label">🛠 '+_notes.map(escHtml).join('　')+'</div>';
+      aiBubble.insertBefore(tn,liveBar);
+    }
     if(loopRes&&loopRes.searchBlocks&&loopRes.searchBlocks.length){
       for(const sb of loopRes.searchBlocks){
         const searchBlock=buildSearchResultsBlock(sb.results,'🤖 '+sb.query);
@@ -2154,7 +2207,7 @@ async function callAPI(model){
       }
       const last=loopRes.searchBlocks[loopRes.searchBlocks.length-1];
       searchData={query:last.query,results:last.results};
-    }else{
+    }else if(!_notes.length){
       const noSearch=document.createElement('div');noSearch.className='search-results-block collapsed';
       noSearch.innerHTML='<div class="search-results-label">🤔 模型决定不搜索，直接回答</div>';
       aiBubble.insertBefore(noSearch,liveBar);
