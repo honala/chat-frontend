@@ -1449,7 +1449,7 @@ async function addAnyFile(file){
     const COMPRESS_THRESHOLD=1*1024*1024;
     let dataUrl;
     if(file.size>COMPRESS_THRESHOLD){
-      dataUrl=(await compressImage(file,1600,0.85))||await readAsDataUrl(file);
+      dataUrl=(await compressImage(file,1280,0.85))||await readAsDataUrl(file);
     }else{
       dataUrl=await readAsDataUrl(file);
     }
