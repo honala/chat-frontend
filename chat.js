@@ -921,7 +921,8 @@ function renderSettingsPanel(panel, _savedProviders){
       <div class="settings-param-label">Top P <span id="settings-topp-val">${pendingParams.topP.toFixed(2)}</span></div>
       <input type="range" id="settings-topp" min="0" max="100" step="1" value="${Math.round(pendingParams.topP*100)}">
     </div>
-    <button class="settings-param-reset" id="settings-param-reset"><i class="ti ti-arrow-back-up icon-md"></i> 默认</button>`;
+    <button class="settings-param-reset" id="settings-param-reset"><i class="ti ti-arrow-back-up icon-md"></i> 默认</button>
+    <div style="font-size:10.5px;color:var(--muted);line-height:1.55;margin-top:8px">注：DeepSeek「思考」模式下 temperature 不生效，top_p 只在思考模式有效并被限制在 0.95–1.0；这两项仅对「关思考」或外部模型真正生效。</div>`;
   paramSection.appendChild(paramCard);
   panel.appendChild(paramSection);
   // Wire sliders to pending values only (no save until confirmed)
