@@ -773,9 +773,10 @@ document.addEventListener('visibilitychange',()=>{
 
 // ── Think mode ─────────────────────────────
 let thinkMode=localStorage.getItem('thinkMode')==='true';
-let thinkEffort=localStorage.getItem('thinkEffort')||'medium';
-if(['low','medium','high'].indexOf(thinkEffort)<0)thinkEffort='medium';
-const THINK_EFFORT_LABELS={low:'低',medium:'中',high:'高'};
+let thinkEffort=localStorage.getItem('thinkEffort')||'high';
+if(thinkEffort==='medium')thinkEffort='high';
+if(['low','high','max'].indexOf(thinkEffort)<0)thinkEffort='high';
+const THINK_EFFORT_LABELS={low:'低',high:'高',max:'最高'};
 let genMode='chat';
 let videoPollInterval=null;
 function applyThinkMode(){
@@ -859,7 +860,7 @@ function renderStatusPills(){
   if(thinkMode){
     const p=document.createElement('div');p.className='status-pill';
     const i=document.createElement('i');i.className='ti ti-bulb';p.appendChild(i);
-    p.appendChild(document.createTextNode(' 思考·'+(THINK_EFFORT_LABELS[thinkEffort]||'中')));
+    p.appendChild(document.createTextNode(' 思考·'+(THINK_EFFORT_LABELS[thinkEffort]||'高')));
     const x=document.createElement('span');x.className='pill-x';x.textContent='×';
     x.addEventListener('click',()=>{thinkMode=false;applyThinkMode();updateToolMenu();renderStatusPills();});
     p.appendChild(x);el.appendChild(p);
@@ -1137,7 +1138,7 @@ function renderThinkToggle(dd){
   el.classList.toggle('on',thinkMode);
   let row=dd.querySelector('.dd-effort');
   if(!row){row=document.createElement('div');row.className='dd-effort';row.addEventListener('click',e=>e.stopPropagation());dd.appendChild(row);}
-  row.innerHTML='<span class="dd-effort-lbl">强度</span>'+['low','medium','high'].map(function(k){return '<button class="dd-effort-btn'+(thinkEffort===k?' on':'')+'" data-eff="'+k+'">'+THINK_EFFORT_LABELS[k]+'</button>';}).join('');
+  row.innerHTML='<span class="dd-effort-lbl">强度</span>'+['low','high','max'].map(function(k){return '<button class="dd-effort-btn'+(thinkEffort===k?' on':'')+'" data-eff="'+k+'">'+THINK_EFFORT_LABELS[k]+'</button>';}).join('');
   row.querySelectorAll('.dd-effort-btn').forEach(function(b){b.addEventListener('click',function(){thinkMode=true;applyThinkMode();applyThinkEffort(b.dataset.eff);});});
   row.style.opacity=thinkMode?'1':'.5';
 }
