@@ -772,7 +772,10 @@ document.addEventListener('visibilitychange',()=>{
 });
 
 // ── Think mode ─────────────────────────────
-let thinkMode=localStorage.getItem('thinkMode')==='true';
+// 默认思考强度=高（对齐 DeepSeek 官方默认 high）；v2 一次性迁移旧的"默认关"
+if(localStorage.getItem('thinkDefaultV')!=='2'){localStorage.setItem('thinkDefaultV','2');localStorage.removeItem('thinkMode');}
+let thinkMode=localStorage.getItem('thinkMode');
+thinkMode=(thinkMode===null)?true:(thinkMode==='true');
 let thinkEffort=localStorage.getItem('thinkEffort')||'high';
 if(thinkEffort==='medium')thinkEffort='high';
 if(['low','high','max'].indexOf(thinkEffort)<0)thinkEffort='high';
