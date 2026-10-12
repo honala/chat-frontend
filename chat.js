@@ -2018,11 +2018,10 @@ async function callAPI(model){
       const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP,think:thinkMode,effort:thinkEffort};
       if(isOpenAI)body.provider_id=provider.id;
       agentId='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-      const res=await fetch('/papi/agent',{method:'POST',headers:Object.assign({},API_HEADERS,{'X-Agent-Id':agentId}),body:JSON.stringify(body),signal:abortController.signal});
-      if(!res.ok)throw new Error('HTTP '+res.status);
       const toolEls={}; let procEl=null,procLine=null,procLabel=null,procSpin=null,procCaret=null,procBody=null;
       const stepGroups={}; let curStep=0;
       let answerTokens=0,genMs=0,gotDone=false,finishReason=''; let pendingAskOpts=null;
+      let received=0,attempt=0,fatalErr=null;const MAX_RETRY=4;
       ensureAgentProcStyle();
       const ensureProc=()=>{
         if(procEl)return;
@@ -2063,7 +2062,13 @@ async function callAPI(model){
         for(const k in stepGroups){if(String(k)!==String(n)){stepGroups[k].body.classList.remove('open');if(stepGroups[k].caret)stepGroups[k].caret.textContent='▸';}}
         return stepGroups[n];
       };
-      for await(const ev of streamNdjsonLines(res)){
+      while(true){
+      try{
+        const res=await fetch('/papi/agent'+(received>0?('?from='+received):''),{method:'POST',headers:Object.assign({},API_HEADERS,{'X-Agent-Id':agentId}),body:JSON.stringify(body),signal:abortController.signal});
+        if(!res.ok){const _he=new Error('HTTP '+res.status);if(res.status<500)_he.fatal=true;throw _he;}
+        for await(const ev of streamNdjsonLines(res)){
+        if(typeof ev.seq==='number')received=ev.seq+1;
+        if(ev.type==='ping')continue;
         if(ev.type==='status'){
           curStep=(ev.step||0);setLine('模型正在判断…',true);
         }else if(ev.type==='thinking'){
@@ -2105,9 +2110,23 @@ async function callAPI(model){
           if(ev.finish_reason)finishReason=ev.finish_reason;
           if(ev.new_messages&&ev.new_messages.length){for(const m of ev.new_messages)CH.push(m);saveToStorage();}
         }else if(ev.type==='error'){
-          throw new Error(ev.message||'agent error');
+          const _fe=new Error(ev.message||'agent error');_fe.fatal=true;throw _fe;
         }
       }
+      if(gotDone)break;
+      throw new Error('stream_closed');
+      }catch(e){
+        if(e&&e.name==='AbortError'){stopped=true;break;}
+        if(e&&e.fatal){fatalErr=e.message;break;}
+        if(gotDone)break;
+        attempt++;
+        if(attempt>MAX_RETRY)break;
+        setLine('连接中断，正在重连（'+attempt+'/'+MAX_RETRY+'）…',true);
+        await new Promise(r=>setTimeout(r,Math.min(800*attempt,4000)));
+        if(stopped)break;
+        continue;
+      }}
+      if(fatalErr){throw new Error(fatalErr);}
       if(procEl){
         procSpin.style.display='none';
         procLabel.textContent='✓ 完成 · '+Object.keys(stepGroups).length+' 步'+(genMs>0?(' · '+(genMs/1000).toFixed(1)+'s'):'');
@@ -2115,7 +2134,7 @@ async function callAPI(model){
       }
       if(!gotDone){
         const w=document.createElement('div');w.className='search-results-block collapsed';
-        w.innerHTML='<div class="search-results-label">⚠ 连接中断，回答可能不完整（可点该条重新生成）</div>';
+        w.innerHTML='<div class="search-results-label">⚠ 连接中断：已自动重试 '+attempt+' 次仍未完成，回答可能不完整（可点该条重新生成）</div>';
         aiBubble.insertBefore(w,liveBar);
       }else if(finishReason==='length'){
         const w=document.createElement('div');w.className='search-results-block collapsed';
