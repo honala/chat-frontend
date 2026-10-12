@@ -516,7 +516,7 @@ let activeSessionId='';
 let sessionCounter=1;
 let chatHistory=[],displayLog=[],pendingFiles=[];
 let abortController=null;
-function getSystemMsg(){const p=PERSONAS[currentPersona];const hint='\n\n[工具] 你拥有 web_search 工具，可联网检索实时信息。当问题涉及最新动态、事实核查、或超出你知识范围的内容时，请主动调用它（可多轮调用后综合回答）；不需要时直接回答。';return p?[{role:'system',content:p+hint}]:[{role:'system',content:hint}];}
+function getSystemMsg(){const p=PERSONAS[currentPersona];const hint='\n\n[工具] 你可调用以下工具：web_search（联网搜索）、read_url（读取网页正文）、weather（天气）、get_time（时间）、calculator（数学计算）、generate_image（生成图片）、generate_video（生成视频）。当问题涉及最新动态、事实核查、超出你知识范围的内容，或需要读取网页、查天气、算数、生成图片/视频时，请主动调用相应工具（可多轮调用后综合回答）；不需要时直接回答。';return p?[{role:'system',content:p+hint}]:[{role:'system',content:hint}];}
 function getActiveSession(){return sessions.find(s=>s.id===activeSessionId);}
 function genId(){return 's'+Date.now()+Math.random().toString(36).slice(2,6);}
 
