@@ -864,9 +864,7 @@ function renderStatusPills(){
     const p=document.createElement('div');p.className='status-pill';
     const i=document.createElement('i');i.className='ti ti-bulb';p.appendChild(i);
     p.appendChild(document.createTextNode(' 思考·'+(THINK_EFFORT_LABELS[thinkEffort]||'高')));
-    const x=document.createElement('span');x.className='pill-x';x.textContent='×';
-    x.addEventListener('click',()=>{thinkMode=false;applyThinkMode();updateToolMenu();renderStatusPills();});
-    p.appendChild(x);el.appendChild(p);
+    el.appendChild(p);
   }
   refreshPillOverflow();
 }
