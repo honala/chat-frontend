@@ -776,7 +776,7 @@ let thinkMode=localStorage.getItem('thinkMode')==='true';
 let thinkEffort=localStorage.getItem('thinkEffort')||'high';
 if(thinkEffort==='medium')thinkEffort='high';
 if(['low','high','max'].indexOf(thinkEffort)<0)thinkEffort='high';
-const THINK_EFFORT_LABELS={low:'低',high:'高',max:'最高'};
+const THINK_EFFORT_LABELS={none:'关',low:'低',high:'高',max:'最高'};
 let genMode='chat';
 let videoPollInterval=null;
 function applyThinkMode(){
@@ -1114,34 +1114,38 @@ function selectModel(m){
   closeDropdown();
 }
 function closeDropdown(){document.getElementById('model-dropdown').style.display='none';}
-// Think toggle
+// Think effort slider (discrete; official levels none/low/high/max)
 function ensureEffortStyle(){
   if(document.getElementById('dd-effort-style'))return;
   const s=document.createElement('style');s.id='dd-effort-style';
-  s.textContent='.dd-effort{display:flex;align-items:center;gap:6px;padding:2px 10px 7px;font-size:12px;transition:opacity .2s}.dd-effort-lbl{opacity:.55;margin-right:2px}.dd-effort-btn{flex:1;border:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;border-radius:7px;padding:3px 0;font-size:12px;cursor:pointer;font-family:inherit;transition:all .12s}.dd-effort-btn:hover{background:var(--accent-dim,rgba(128,128,128,.12))}.dd-effort-btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}';
+  s.textContent='.dd-effort{padding:2px 10px 8px;font-size:12px}.dd-effort-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px}.dd-effort-title{opacity:.6;display:flex;align-items:center;gap:5px}.dd-effort-val{font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}.dd-effort.off .dd-effort-val{color:var(--muted)}.dd-effort-range{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:3px;background:rgba(128,128,128,.3);outline:none;cursor:pointer}.dd-effort-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid var(--surface,#141420);box-shadow:0 1px 4px rgba(0,0,0,.4);transition:transform .12s}.dd-effort-range::-webkit-slider-thumb:hover{transform:scale(1.18)}.dd-effort-range::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--accent);border:2px solid var(--surface,#141420);cursor:pointer}.dd-effort-range::-moz-range-track{height:4px;border-radius:3px;background:rgba(128,128,128,.3)}.dd-effort.off .dd-effort-range::-webkit-slider-thumb{background:var(--muted)}.dd-effort.off .dd-effort-range::-moz-range-thumb{background:var(--muted)}.dd-effort-scale{display:flex;justify-content:space-between;margin-top:6px;font-size:10.5px;color:var(--muted)}.dd-effort-scale span{cursor:pointer;transition:color .12s;padding:0 1px;user-select:none}.dd-effort-scale span:hover{color:var(--text)}.dd-effort-scale span.on{color:var(--accent);font-weight:600}';
   document.head.appendChild(s);
 }
-function applyThinkEffort(v){
-  thinkEffort=v;localStorage.setItem('thinkEffort',v);
-  const dd=document.getElementById('model-dropdown');
-  if(dd)dd.querySelectorAll('.dd-effort-btn').forEach(b=>b.classList.toggle('on',b.dataset.eff===v));
+const EFFORT_ORDER=['none','low','high','max'];
+function effortIndex(){var i=thinkMode?EFFORT_ORDER.indexOf(thinkEffort):0;return i<0?2:i;}
+function applyEffortIndex(i){
+  if(i<=0){thinkMode=false;}
+  else{thinkMode=true;thinkEffort=EFFORT_ORDER[i]||'high';localStorage.setItem('thinkEffort',thinkEffort);}
+  localStorage.setItem('thinkMode',thinkMode);
   renderStatusPills();
+  const dd=document.getElementById('model-dropdown');
+  if(dd)renderThinkToggle(dd);
 }
 function renderThinkToggle(dd){
   ensureEffortStyle();
-  let el=dd.querySelector('.dd-think');
-  if(!el){
-    el=document.createElement('button');el.className='dd-think';
-    el.innerHTML='<i class="ti ti-bulb"></i> 思考 <span class="dd-think-slider"></span>';
-    el.addEventListener('click',e=>{e.stopPropagation();thinkMode=!thinkMode;applyThinkMode();renderThinkToggle(dd);});
-    dd.appendChild(el);
-  }
-  el.classList.toggle('on',thinkMode);
   let row=dd.querySelector('.dd-effort');
   if(!row){row=document.createElement('div');row.className='dd-effort';row.addEventListener('click',e=>e.stopPropagation());dd.appendChild(row);}
-  row.innerHTML='<span class="dd-effort-lbl">强度</span>'+['low','high','max'].map(function(k){return '<button class="dd-effort-btn'+(thinkEffort===k?' on':'')+'" data-eff="'+k+'">'+THINK_EFFORT_LABELS[k]+'</button>';}).join('');
-  row.querySelectorAll('.dd-effort-btn').forEach(function(b){b.addEventListener('click',function(){thinkMode=true;applyThinkMode();applyThinkEffort(b.dataset.eff);});});
-  row.style.opacity=thinkMode?'1':'.5';
+  else{row.innerHTML='';}
+  const idx=effortIndex();
+  row.classList.toggle('off',idx===0);
+  const head=document.createElement('div');head.className='dd-effort-head';
+  head.innerHTML='<span class="dd-effort-title"><i class="ti ti-bulb"></i> 思考强度</span><span class="dd-effort-val">'+THINK_EFFORT_LABELS[EFFORT_ORDER[idx]]+'</span>';
+  const rng=document.createElement('input');rng.type='range';rng.className='dd-effort-range';
+  rng.min='0';rng.max='3';rng.step='1';rng.value=String(idx);rng.setAttribute('aria-label','思考强度');
+  rng.addEventListener('input',function(){applyEffortIndex(parseInt(rng.value,10)||0);});
+  const scale=document.createElement('div');scale.className='dd-effort-scale';
+  EFFORT_ORDER.forEach(function(k,i){const sp=document.createElement('span');sp.textContent=THINK_EFFORT_LABELS[k];if(i===idx)sp.classList.add('on');sp.addEventListener('click',function(){applyEffortIndex(i);});scale.appendChild(sp);});
+  row.appendChild(head);row.appendChild(rng);row.appendChild(scale);
 }
 // Pill click: position dropdown below pill, open
 modelSelect.addEventListener('click',()=>{
