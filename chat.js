@@ -1053,6 +1053,7 @@ async function loadModels(){
   const freeModels=[
     // ── DeepSeek 官方模型 ──
     {value:FREE_PREFIX+'deepseek-flash',name:'deepseek-flash',label:'DeepSeek V4.1 Flash'},
+    {value:FREE_PREFIX+'deepseek-v4-pro',name:'deepseek-v4-pro',label:'DeepSeek V4 Pro'},
   ];
 
   const allModels=[...ollamaModels,...externalModels];
