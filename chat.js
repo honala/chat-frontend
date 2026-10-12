@@ -773,6 +773,9 @@ document.addEventListener('visibilitychange',()=>{
 
 // ── Think mode ─────────────────────────────
 let thinkMode=localStorage.getItem('thinkMode')==='true';
+let thinkEffort=localStorage.getItem('thinkEffort')||'medium';
+if(['low','medium','high'].indexOf(thinkEffort)<0)thinkEffort='medium';
+const THINK_EFFORT_LABELS={low:'低',medium:'中',high:'高'};
 let genMode='chat';
 let videoPollInterval=null;
 function applyThinkMode(){
@@ -856,7 +859,7 @@ function renderStatusPills(){
   if(thinkMode){
     const p=document.createElement('div');p.className='status-pill';
     const i=document.createElement('i');i.className='ti ti-bulb';p.appendChild(i);
-    p.appendChild(document.createTextNode(' 思考'));
+    p.appendChild(document.createTextNode(' 思考·'+(THINK_EFFORT_LABELS[thinkEffort]||'中')));
     const x=document.createElement('span');x.className='pill-x';x.textContent='×';
     x.addEventListener('click',()=>{thinkMode=false;applyThinkMode();updateToolMenu();renderStatusPills();});
     p.appendChild(x);el.appendChild(p);
@@ -1110,7 +1113,20 @@ function selectModel(m){
 }
 function closeDropdown(){document.getElementById('model-dropdown').style.display='none';}
 // Think toggle
+function ensureEffortStyle(){
+  if(document.getElementById('dd-effort-style'))return;
+  const s=document.createElement('style');s.id='dd-effort-style';
+  s.textContent='.dd-effort{display:flex;align-items:center;gap:6px;padding:2px 10px 7px;font-size:12px;transition:opacity .2s}.dd-effort-lbl{opacity:.55;margin-right:2px}.dd-effort-btn{flex:1;border:1px solid rgba(128,128,128,.3);background:transparent;color:inherit;border-radius:7px;padding:3px 0;font-size:12px;cursor:pointer;font-family:inherit;transition:all .12s}.dd-effort-btn:hover{background:var(--accent-dim,rgba(128,128,128,.12))}.dd-effort-btn.on{background:var(--accent);color:#fff;border-color:var(--accent)}';
+  document.head.appendChild(s);
+}
+function applyThinkEffort(v){
+  thinkEffort=v;localStorage.setItem('thinkEffort',v);
+  const dd=document.getElementById('model-dropdown');
+  if(dd)dd.querySelectorAll('.dd-effort-btn').forEach(b=>b.classList.toggle('on',b.dataset.eff===v));
+  renderStatusPills();
+}
 function renderThinkToggle(dd){
+  ensureEffortStyle();
   let el=dd.querySelector('.dd-think');
   if(!el){
     el=document.createElement('button');el.className='dd-think';
@@ -1119,6 +1135,11 @@ function renderThinkToggle(dd){
     dd.appendChild(el);
   }
   el.classList.toggle('on',thinkMode);
+  let row=dd.querySelector('.dd-effort');
+  if(!row){row=document.createElement('div');row.className='dd-effort';row.addEventListener('click',e=>e.stopPropagation());dd.appendChild(row);}
+  row.innerHTML='<span class="dd-effort-lbl">强度</span>'+['low','medium','high'].map(function(k){return '<button class="dd-effort-btn'+(thinkEffort===k?' on':'')+'" data-eff="'+k+'">'+THINK_EFFORT_LABELS[k]+'</button>';}).join('');
+  row.querySelectorAll('.dd-effort-btn').forEach(function(b){b.addEventListener('click',function(){thinkMode=true;applyThinkMode();applyThinkEffort(b.dataset.eff);});});
+  row.style.opacity=thinkMode?'1':'.5';
 }
 // Pill click: position dropdown below pill, open
 modelSelect.addEventListener('click',()=>{
@@ -1982,7 +2003,7 @@ async function callAPI(model){
     try{
       let payloadMessages=repairToolChain(trimHistory(CH,MAX_HISTORY));
       if(!thinkMode)payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...rest}=m;return rest;});
-      const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP,think:thinkMode};
+      const body={model:realModelName(model),messages:normalizeMessages(payloadMessages),max_steps:4,temperature:modelParams.temperature,top_p:modelParams.topP,think:thinkMode,effort:thinkEffort};
       if(isOpenAI)body.provider_id=provider.id;
       agentId='a'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
       const res=await fetch('/papi/agent',{method:'POST',headers:Object.assign({},API_HEADERS,{'X-Agent-Id':agentId}),body:JSON.stringify(body),signal:abortController.signal});
@@ -2116,7 +2137,7 @@ async function callAPI(model){
         payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
       }
       const res=await fetch('/papi/gemini-llm',{method:'POST',headers:API_HEADERS,
-        body:JSON.stringify({model:geminiModel,messages:payloadMessages,stream:true,think:thinkMode,temperature:modelParams.temperature,top_p:modelParams.topP}),
+        body:JSON.stringify({model:geminiModel,messages:payloadMessages,stream:true,think:thinkMode,effort:thinkEffort,temperature:modelParams.temperature,top_p:modelParams.topP}),
         signal:abortController.signal});
       if(!res.ok){
         const errData=await res.json().catch(()=>({}));
@@ -2155,7 +2176,7 @@ async function callAPI(model){
       payloadMessages=payloadMessages.map(m=>{if(!('reasoning_content' in m))return m;const{reasoning_content,...clean}=m;return clean;});
     }
     const res=await fetch('/api/chat',{method:'POST',headers:API_HEADERS,
-      body:JSON.stringify({model:realModelName(model),messages:payloadMessages,stream:true,think:thinkMode,options:{temperature:modelParams.temperature,top_p:modelParams.topP}}),
+      body:JSON.stringify({model:realModelName(model),messages:payloadMessages,stream:true,think:thinkMode,effort:thinkEffort,options:{temperature:modelParams.temperature,top_p:modelParams.topP}}),
       signal:abortController.signal});
     if(!res.ok)throw new Error(`HTTP ${res.status}`);
     let lastEvalCount=0,lastEvalDuration=0,streamDone=false;
